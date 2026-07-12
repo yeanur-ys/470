@@ -7,16 +7,18 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/auth"
 )
 
 type Handler struct {
-	DB *pgxpool.Pool
+	DB    *pgxpool.Pool
+	Redis *redis.Client
 }
 
-func NewHandler(db *pgxpool.Pool) *Handler {
-	return &Handler{DB: db}
+func NewHandler(db *pgxpool.Pool, rdb *redis.Client) *Handler {
+	return &Handler{DB: db, Redis: rdb}
 }
 
 type voteRequest struct {
@@ -45,7 +47,7 @@ func (h *Handler) Vote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	verdict, err := TryResolve(context.Background(), h.DB, claimID)
+	verdict, err := TryResolve(context.Background(), h.DB, h.Redis, claimID)
 	switch {
 	case errors.Is(err, ErrNoConsensusYet):
 		w.WriteHeader(http.StatusAccepted) // vote recorded, consensus pending

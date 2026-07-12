@@ -72,18 +72,55 @@ every point, then delete it.
 
 ## What's intentionally left as a next step
 
-This covers Sprint 1 (infra + CDC + a working auth/API skeleton) plus the
-consensus/compliance business logic. Still open, in the order the SRS's own
-sprint plan implies:
-
-- Wiring `apps/frontend`'s dashboards to the new endpoints (currently static
-  layouts with no data fetching).
-- Rendering the Sigma.js graph against live `/articles` + Neo4j data and
-  driving node color from `CorruptionFactor` (FR-10) client-side.
-- Redis: writing read-count increments and the rank-score leaderboard
-  (Sorted Set) — the schema/keys exist (`packages/database/redis`) but nothing
-  populates them yet.
 - Auditor onboarding / credential verification (NFR-6) — currently any user
-  row with `role = 'auditor'` is trusted as-is.
-- Real password reset for `password_hash` — no user is seeded yet; see the
-  README for a one-off `psql` insert to create your first accounts.
+  row with `role = 'auditor'` is trusted as-is; there's no upload/verification
+  flow for academic or professional credentials yet.
+- Self-corrected claims: there's no endpoint yet for a journalist to mark
+  their own claim as self-corrected (the `self_corrected_claims` column and
+  `w2 > w1` weighting exist and work — nothing currently increments it).
+- Admin appeals review UI: `appeals` rows are created (FR-5) and the pulsing
+  amber state (FR-9) can be driven by `appeals.status == 'active'`, but there's
+  no dashboard yet for an admin to resolve an appeal.
+- The frontend isn't containerized (no `Dockerfile`/compose service) — run it
+  with `pnpm dev` per the README while iterating.
+- Sign-up / account creation flow — accounts are currently seeded directly in
+  Postgres (see README step 2); there's no self-serve registration page.
+
+## Round 2 — frontend, Redis leaderboard, and the graph API (this update)
+
+Added on top of the Sprint 1 rebuild above:
+
+- **Redis leaderboard**: `internal/redisstore`, `internal/leaderboard`.
+  `GET /leaderboard` reads the `leaderboard:journalist_rank` sorted set;
+  `POST /articles/{id}/read` increments both the Postgres counter (source of
+  truth, flows to Neo4j via CDC) and a Redis counter (NFR-3, instant reads).
+  Every time a claim resolves, the author's Journalist Rank Score (formula 1)
+  is recalculated and pushed into the sorted set (`consensus/voting.go`).
+- **Claims**: `internal/claims` — `POST /articles/{id}/claims` (journalists
+  tag `#Claim` statements, FR-3) and `GET /claims/pending` (auditors browse
+  what's awaiting cross-tag consensus, FR-7).
+- **Graph API**: `internal/graph` — `GET /journalists/{id}/graph` reads
+  directly from Neo4j (never Postgres), returning exactly what the frontend
+  needs to render: `corruptionFactor`, `readershipVolume`, `clusterId`,
+  `isRetracted`. The CDC consumer (`internal/kafka/consumer.go`) now also
+  computes and writes `corruptionFactor` to each Neo4j node so this endpoint
+  doesn't need a second data source.
+- **Frontend, end to end**:
+  - `lib/auth.ts` + `components/RoleGate.tsx`: session storage and a
+    role-gate wrapper applied to all three dashboard layouts.
+  - `app/login/page.tsx`: real login against `POST /auth/login`, redirects by
+    role.
+  - `lib/crypto.ts`: generates a per-session Web Crypto keypair and signs
+    article title+body (NFR-4) instead of sending a placeholder signature.
+  - Journalist dashboard/publish/appeals, auditor dashboard/claim-vote, admin
+    dashboard/compliance: all replaced with real forms and data fetching
+    against the endpoints above (previously static placeholder text).
+  - `components/LineageGraph.tsx`: real Sigma.js + graphology renderer
+    fetching `/journalists/{id}/graph`, coloring nodes by Corruption Factor
+    (FR-10) and sizing them by readership (FR-12).
+  - `graph/hooks/useSemanticZoom.ts`: real implementation — within each
+    Louvain cluster, the highest-readership node stays visible when the
+    camera zooms out past half of `maxCameraRatio`; the rest hide (FR-11).
+  - Verified with `pnpm install`, `next typegen`, `tsc --noEmit`, `eslint`,
+    and a full `next build` — all pass clean.
+

@@ -39,3 +39,17 @@ export async function apiPost<T>(path: string, body: unknown, init?: RequestInit
 
   return (await response.json()) as T;
 }
+
+// For endpoints that reply 201/202/204 with no JSON body (or an optional one).
+export async function apiPostVoid(path: string, body: unknown, init?: RequestInit): Promise<void> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    method: "POST",
+    headers: authHeaders(init),
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+}

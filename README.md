@@ -125,7 +125,39 @@ cp .env.example .env.local 2>/dev/null || echo "NEXT_PUBLIC_API_URL=http://local
 pnpm dev
 ```
 
-Open http://localhost:3010.
+Open http://localhost:3010 → **Sign in** with one of the seeded accounts from
+step 2. Each role lands on its own dashboard:
+
+- **Journalist** (`/journalist/dashboard`): lists your articles, links to
+  **Publish** (writes + client-side signs an article, then lets you tag
+  `#Claim` statements) and **Appeals** (stake rank score to dispute a ruling).
+- **Auditor** (`/auditor/dashboard`): lists claims awaiting cross-tag
+  consensus; click into one to stake reputation and vote.
+- **Admin** (`/admin/dashboard`): lists every article; **Compliance** applies
+  a GDPR/DMCA retraction (tombstones the content, greys out the node,
+  deducts the author's rank score).
+- **Public profile** (`/profile/[journalistId]`): anyone can view a
+  journalist's lineage graph — a live Sigma.js/WebGL rendering of their
+  article graph read straight from Neo4j, colored by Corruption Factor and
+  sized by readership.
+
+## API reference (go-backend)
+
+| Method | Path | Role | Notes |
+|---|---|---|---|
+| GET | `/health` | public | liveness check |
+| POST | `/auth/login` | public | returns `{ token, role, userId }` |
+| GET | `/articles` | public | latest 100 articles |
+| GET | `/articles/mine` | journalist | your own articles |
+| POST | `/articles` | journalist | create (FR-3/FR-4) |
+| POST | `/articles/{id}/read` | public | increments readership (Postgres + Redis) |
+| POST | `/articles/{id}/claims` | journalist | tag a `#Claim` (FR-3) |
+| POST | `/appeals` | journalist | stake rank score to dispute (FR-5) |
+| GET | `/claims/pending` | auditor | claims awaiting consensus (FR-7) |
+| POST | `/claims/{id}/votes` | auditor | stake + vote (FR-6); auto-resolves + slashes (FR-7/FR-8) |
+| POST | `/admin/articles/{id}/retract` | admin | tombstone + rank penalty (FR-13/14/15) |
+| GET | `/journalists/{id}/graph` | public | nodes/edges for the Sigma.js graph, read from Neo4j |
+| GET | `/leaderboard` | public | top 50 by rank score (Redis sorted set) |
 
 ## Or run everything through Docker
 

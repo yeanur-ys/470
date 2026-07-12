@@ -7,16 +7,18 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/auth"
 )
 
 type Handler struct {
-	DB *pgxpool.Pool
+	DB    *pgxpool.Pool
+	Redis *redis.Client
 }
 
-func NewHandler(db *pgxpool.Pool) *Handler {
-	return &Handler{DB: db}
+func NewHandler(db *pgxpool.Pool, rdb *redis.Client) *Handler {
+	return &Handler{DB: db, Redis: rdb}
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -28,6 +30,35 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		ORDER BY created_at DESC
 		LIMIT 100
 	`)
+	if err != nil {
+		http.Error(w, "failed to load articles", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	result, err := pgx.CollectRows(rows, pgx.RowToStructByName[Article])
+	if err != nil {
+		http.Error(w, "failed to read articles", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+// Mine implements the journalist dashboard's article list (FR-1: each
+// journalist manages their own graph of articles).
+func (h *Handler) Mine(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+
+	rows, err := h.DB.Query(context.Background(), `
+		SELECT id, journalist_id, parent_article_id, title, body, signature,
+		       readership_volume, verified_claims, self_corrected_claims, false_claims,
+		       is_retracted, created_at
+		FROM articles
+		WHERE journalist_id = $1
+		ORDER BY created_at DESC
+	`, claims.UserID)
 	if err != nil {
 		http.Error(w, "failed to load articles", http.StatusInternalServerError)
 		return

@@ -24,8 +24,9 @@ type loginRequest struct {
 }
 
 type loginResponse struct {
-	Token string `json:"token"`
-	Role  string `json:"role"`
+	Token  string `json:"token"`
+	Role   string `json:"role"`
+	UserID string `json:"userId"`
 }
 
 // Login implements FR-1/FR-2: verified account access for journalists, auditors and admins.
@@ -59,5 +60,5 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(loginResponse{Token: token, Role: role})
+	_ = json.NewEncoder(w).Encode(loginResponse{Token: token, Role: role, UserID: userID})
 }
