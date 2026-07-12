@@ -1,0 +1,60 @@
+package consensus
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/auth"
+)
+
+type Handler struct {
+	DB *pgxpool.Pool
+}
+
+func NewHandler(db *pgxpool.Pool) *Handler {
+	return &Handler{DB: db}
+}
+
+type voteRequest struct {
+	Stake   float64 `json:"stake"`
+	Verdict bool    `json:"verdict"`
+}
+
+// Vote implements FR-6: an auditor stakes reputation before voting on a claim.
+func (h *Handler) Vote(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	claimID := r.PathValue("claimId")
+
+	var req voteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Stake <= 0 {
+		http.Error(w, "a positive stake is required", http.StatusBadRequest)
+		return
+	}
+
+	_, err := h.DB.Exec(context.Background(), `
+		INSERT INTO votes (claim_id, auditor_id, stake, verdict)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (claim_id, auditor_id) DO UPDATE SET stake = $3, verdict = $4
+	`, claimID, claims.UserID, req.Stake, req.Verdict)
+	if err != nil {
+		http.Error(w, "failed to record vote", http.StatusInternalServerError)
+		return
+	}
+
+	verdict, err := TryResolve(context.Background(), h.DB, claimID)
+	switch {
+	case errors.Is(err, ErrNoConsensusYet):
+		w.WriteHeader(http.StatusAccepted) // vote recorded, consensus pending
+		return
+	case err != nil:
+		http.Error(w, "failed to evaluate consensus", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"resolved": true, "verdict": verdict})
+}
