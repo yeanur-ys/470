@@ -6,11 +6,10 @@ export default function JournalistLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <RoleGate role="journalist">
-      <section style={{ maxWidth: 720, margin: "0 auto", padding: "1rem" }}>
-        <h1>Journalist Workspace</h1>
-        <DashboardNav />
-        {children}
-      </section>
+      <div className="app-shell">
+        <DashboardNav role="journalist" />
+        <main className="app-main">{children}</main>
+      </div>
     </RoleGate>
   );
 }

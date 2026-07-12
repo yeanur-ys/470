@@ -52,7 +52,7 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
             x: Math.cos(i * angleStep) * 10,
             y: Math.sin(i * angleStep) * 10,
             size: readershipToSize(node.readershipVolume), // FR-12 Dynamic Node Scaling
-            color: node.isRetracted ? "#9ca3af" : corruptionToColor(node.corruptionFactor), // FR-10
+            color: node.isRetracted ? "#a9a696" : corruptionToColor(node.corruptionFactor), // FR-10
             readershipVolume: node.readershipVolume,
             corruptionFactor: node.corruptionFactor,
             clusterId: node.clusterId,
@@ -95,16 +95,29 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
   }, [journalistId]);
 
   return (
-    <section>
-      <h2>Lineage Graph</h2>
-      {error && <p role="alert">{error}</p>}
+    <section className="card" style={{ padding: "1.5rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "1rem" }}>
+        <h2 style={{ margin: 0 }}>Lineage graph</h2>
+        <span className="eyebrow" style={{ margin: 0 }}>
+          {"neutral"} → <span style={{ color: "var(--pen-red)" }}>corrupted</span>
+        </span>
+      </div>
+      {error && <p className="notice" data-tone="alert">{error}</p>}
       <div
         ref={containerRef}
-        style={{ width: "100%", height: 480, border: "1px solid #e5e7eb", borderRadius: 8 }}
+        style={{
+          width: "100%",
+          height: 480,
+          border: "1px solid var(--rule)",
+          borderRadius: "var(--radius)",
+          background: "var(--paper)",
+        }}
       />
       {selected && (
-        <div style={{ marginTop: "0.75rem", fontSize: "0.9rem" }}>
-          <strong>{selected.isRetracted ? "[retracted]" : selected.title}</strong>
+        <div className="notice" style={{ marginTop: "1rem" }}>
+          <strong style={{ fontFamily: "var(--font-display)" }}>
+            {selected.isRetracted ? "[retracted]" : selected.title}
+          </strong>
           <br />
           Reads: {selected.readershipVolume} · Corruption factor:{" "}
           {selected.corruptionFactor.toFixed(2)}

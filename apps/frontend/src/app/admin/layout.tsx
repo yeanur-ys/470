@@ -6,11 +6,10 @@ export default function AdminLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <RoleGate role="admin">
-      <section style={{ maxWidth: 720, margin: "0 auto", padding: "1rem" }}>
-        <h1>Admin Workspace</h1>
-        <DashboardNav />
-        {children}
-      </section>
+      <div className="app-shell">
+        <DashboardNav role="admin" />
+        <main className="app-main">{children}</main>
+      </div>
     </RoleGate>
   );
 }

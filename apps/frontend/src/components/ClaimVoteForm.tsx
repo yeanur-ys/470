@@ -17,6 +17,7 @@ export function ClaimVoteForm({ claimId }: { claimId: string }) {
   const [stake, setStake] = useState("1");
   const [verdict, setVerdict] = useState<"true" | "false">("true");
   const [status, setStatus] = useState<string | null>(null);
+  const [tone, setTone] = useState<"ok" | "alert" | "neutral">("neutral");
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -29,40 +30,48 @@ export function ClaimVoteForm({ claimId }: { claimId: string }) {
         verdict: verdict === "true",
       });
       if (res.resolved) {
+        setTone(res.verdict ? "ok" : "alert");
         setStatus(`Consensus reached: claim marked ${res.verdict ? "verified" : "false"}.`);
       } else {
-        setStatus("Vote recorded — waiting on a cross-tag auditor to confirm (FR-7).");
+        setTone("neutral");
+        setStatus("Vote recorded — waiting on a cross-tag auditor to confirm.");
       }
+      setTimeout(() => router.push("/auditor/dashboard"), 1600);
     } catch {
+      setTone("alert");
       setStatus("Could not record your vote. It may already be resolved.");
     } finally {
       setSubmitting(false);
-      setTimeout(() => router.push("/auditor/dashboard"), 1500);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxWidth: 420 }}>
-      <label>
-        Reputation to stake (FR-6)
+    <form onSubmit={handleSubmit} className="card app-main--narrow" style={{ padding: "1.5rem" }}>
+      <label className="field">
+        Reputation to stake
         <Input type="number" min={0.1} step={0.1} value={stake} onChange={(e) => setStake(e.target.value)} required />
       </label>
-      <fieldset>
-        <legend>Verdict</legend>
-        <label>
+      <fieldset className="field" style={{ border: "none", padding: 0, margin: 0 }}>
+        <legend className="eyebrow" style={{ marginBottom: "0.5rem" }}>
+          Verdict
+        </legend>
+        <label style={{ display: "block", marginBottom: "0.35rem" }}>
           <input type="radio" name="verdict" value="true" checked={verdict === "true"} onChange={() => setVerdict("true")} />
           {" "}Confirm claim
         </label>
-        <br />
-        <label>
+        <label style={{ display: "block" }}>
           <input type="radio" name="verdict" value="false" checked={verdict === "false"} onChange={() => setVerdict("false")} />
           {" "}Reject claim (false)
         </label>
       </fieldset>
-      <Button type="submit" disabled={submitting}>
+      <Button type="submit" disabled={submitting} style={{ marginTop: "0.75rem" }}>
         {submitting ? "Submitting…" : "Cast vote"}
       </Button>
-      {status && <p role="status">{status}</p>}
+      {status && (
+        <p className="notice" data-tone={tone === "alert" ? "alert" : undefined} style={{ marginTop: "1rem" }}>
+          {status}
+        </p>
+      )}
     </form>
   );
 }

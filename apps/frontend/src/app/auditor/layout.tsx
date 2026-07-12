@@ -6,11 +6,10 @@ export default function AuditorLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <RoleGate role="auditor">
-      <section style={{ maxWidth: 720, margin: "0 auto", padding: "1rem" }}>
-        <h1>Auditor Workspace</h1>
-        <DashboardNav />
-        {children}
-      </section>
+      <div className="app-shell">
+        <DashboardNav role="auditor" />
+        <main className="app-main">{children}</main>
+      </div>
     </RoleGate>
   );
 }

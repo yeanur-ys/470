@@ -23,7 +23,11 @@ export function RoleGate({ role, children }: RoleGateProps) {
   }, [role, router]);
 
   if (!checked) {
-    return <p>Checking session…</p>;
+    return (
+      <div className="auth-screen">
+        <p className="notice">Checking session…</p>
+      </div>
+    );
   }
 
   return <>{children}</>;

@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { PageHeader } from "@/components/PageHeader";
+import { MarginLog } from "@/components/MarginLog";
 import { apiGet, apiPostVoid } from "@/lib/api";
 
 interface Article {
   id: string;
   title: string;
   isRetracted: boolean;
+  falseClaims: number;
 }
 
 export default function AppealsPage() {
@@ -29,7 +32,7 @@ export default function AppealsPage() {
     setSubmitting(true);
     try {
       await apiPostVoid("/appeals", { articleId, stakedPercent: Number(stakedPercent) });
-      setStatus("Appeal filed. The disputed node will show as pending review (FR-9).");
+      setStatus("Appeal filed. The disputed node will show as pending review.");
     } catch {
       setStatus("Could not file the appeal.");
     } finally {
@@ -37,42 +40,54 @@ export default function AppealsPage() {
     }
   }
 
+  const disputable = articles.filter((a) => !a.isRetracted && a.falseClaims > 0);
+  const notes = [
+    disputable.length > 0
+      ? { text: `${disputable.length} stor${disputable.length === 1 ? "y is" : "ies are"} eligible for appeal right now.`, tone: "pending" as const }
+      : { text: "No stories currently carry a false-claim verdict.", tone: "ok" as const },
+    { text: "Staking is irreversible — it's deducted whether the appeal succeeds or not.", tone: "neutral" as const },
+  ];
+
   return (
-    <div>
-      <p>
-        Dispute a ruling by staking a percentage of your own rank score (FR-5). This is
-        irreversible if the appeal is rejected — the staked percentage is deducted either way.
-      </p>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxWidth: 480 }}>
-        <label>
-          Article
-          <select value={articleId} onChange={(e) => setArticleId(e.target.value)} required>
-            <option value="" disabled>
-              Select an article…
-            </option>
-            {articles.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.title} {a.isRetracted ? "(retracted)" : ""}
+    <>
+      <PageHeader
+        eyebrow="Journalist desk"
+        title="Dispute a ruling"
+        description="Stake a percentage of your rank score to challenge a false-claim verdict."
+      />
+      <div className="docket">
+        <form onSubmit={handleSubmit} className="card app-main--narrow" style={{ padding: "1.5rem" }}>
+          <label className="field">
+            Story
+            <select className="field-input" value={articleId} onChange={(e) => setArticleId(e.target.value)} required>
+              <option value="" disabled>
+                Select a story…
               </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Rank score to stake (%)
-          <Input
-            type="number"
-            min={1}
-            max={100}
-            value={stakedPercent}
-            onChange={(e) => setStakedPercent(e.target.value)}
-            required
-          />
-        </label>
-        <Button type="submit" disabled={submitting || !articleId}>
-          {submitting ? "Filing…" : "File appeal"}
-        </Button>
-      </form>
-      {status && <p role="status">{status}</p>}
-    </div>
+              {articles.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.title} {a.isRetracted ? "(retracted)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Rank score to stake (%)
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={stakedPercent}
+              onChange={(e) => setStakedPercent(e.target.value)}
+              required
+            />
+          </label>
+          <Button type="submit" disabled={submitting || !articleId}>
+            {submitting ? "Filing…" : "File appeal"}
+          </Button>
+          {status && <p className="notice" style={{ marginTop: "1rem" }}>{status}</p>}
+        </form>
+        <MarginLog notes={notes} />
+      </div>
+    </>
   );
 }

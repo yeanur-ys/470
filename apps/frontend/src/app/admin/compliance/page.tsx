@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { PageHeader } from "@/components/PageHeader";
+import { MarginLog } from "@/components/MarginLog";
 import { apiPost } from "@/lib/api";
 
 interface RetractResponse {
@@ -33,30 +35,35 @@ export default function CompliancePage() {
   }
 
   return (
-    <div>
-      <p>
-        Apply a GDPR/DMCA retraction (FR-14): identifying content is replaced with a cryptographic
-        tombstone, the node stays visible (greyed-out) for historical continuity, and the
-        author's rank score takes a permanent deduction (FR-15). This cannot be undone.
-      </p>
-      <form onSubmit={handleSubmit} style={{ display: "flex", gap: "0.5rem", maxWidth: 480 }}>
-        <Input
-          placeholder="Article ID"
-          value={articleId}
-          onChange={(e) => setArticleId(e.target.value)}
-          required
-          style={{ flex: 1 }}
+    <>
+      <PageHeader
+        eyebrow="Admin desk"
+        title="Retract a story"
+        description="A GDPR/DMCA retraction replaces the content with a cryptographic tombstone, greys out the node, and permanently deducts the author's rank score."
+      />
+      <div className="docket">
+        <form onSubmit={handleSubmit} className="card app-main--narrow" style={{ padding: "1.5rem" }}>
+          <label className="field">
+            Article ID
+            <Input value={articleId} onChange={(e) => setArticleId(e.target.value)} required />
+          </label>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? "Retracting…" : "Retract"}
+          </Button>
+          {error && <p className="notice" data-tone="alert" style={{ marginTop: "1rem" }}>{error}</p>}
+          {result && (
+            <p className="notice" style={{ marginTop: "1rem" }}>
+              Retracted. Tombstone hash: <code>{result.tombstoneHash}</code>
+            </p>
+          )}
+        </form>
+        <MarginLog
+          notes={[
+            { text: "This action cannot be undone once submitted.", tone: "alert" },
+            { text: "The node stays visible, greyed-out, to preserve graph continuity.", tone: "neutral" },
+          ]}
         />
-        <Button type="submit" disabled={submitting}>
-          {submitting ? "Retracting…" : "Retract"}
-        </Button>
-      </form>
-      {error && <p role="alert">{error}</p>}
-      {result && (
-        <p role="status">
-          Retracted. Tombstone hash: <code>{result.tombstoneHash}</code>
-        </p>
-      )}
-    </div>
+      </div>
+    </>
   );
 }

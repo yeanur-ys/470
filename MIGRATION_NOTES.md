@@ -70,6 +70,45 @@ every point, then delete it.
 - Frontend `lib/api.ts` now attaches the JWT from `lib/auth.ts` to every
   request automatically instead of sending nothing.
 
+## Round 3 — frontend redesign (this update)
+
+The frontend previously used ad-hoc inline styles with no visual identity.
+Replaced with a small, consistent design system in `apps/frontend/src/app/globals.css`:
+
+- **Palette** — `--ink` (carbon black), `--paper` (cool onion-skin, not cream),
+  `--stamp-green` (verified), `--pen-red` (false/retracted/alert), `--brass`
+  (pending), `--wire-blue` (links/info). All in `globals.css` as CSS variables.
+- **Type** — Newsreader (serif display, used sparingly, italic for
+  annotations), IBM Plex Sans (UI), IBM Plex Mono (IDs, scores, hashes, nav
+  labels). Loaded via `next/font/google` in `app/layout.tsx`.
+- **Shell** — `.app-shell` / `.nav-rail` / `.app-main`: a left "spine" nav
+  (`components/DashboardNav.tsx`) instead of a top bar.
+- **Docket layout** — `.docket` is a two-column grid (main content + a
+  margin rail) used on every dashboard page.
+- **The Margin Log** (`components/MarginLog.tsx`) — the one signature
+  element. It reads like a copy editor's marginal note, but every line is
+  computed from real fetched data (retracted counts, pending appeals, tag
+  breakdowns, draft completeness). This is the actual "what's outstanding"
+  feature requested — built into the design language rather than bolted on
+  as a separate widget.
+- **Primitives** — `PageHeader`, `Stamp` (ink-stamp status badges: ok /
+  alert / pending / neutral), restyled `Button`/`Input`, `.ledger` (table),
+  `.card`, `.notice`.
+
+Every existing page (login, all three dashboards, publish, appeals, claim
+vote, compliance, public profile + graph) now uses these primitives — no
+page was left on the old inline-style version.
+
+Verified with `tsc --noEmit`, `eslint`, and a full `next build`. Google
+Fonts can't be fetched from this sandbox's restricted network, so the build
+was also run once with the font import stubbed out to confirm the rest of
+the app compiles; the real font-loaded `layout.tsx` still passes
+`tsc --noEmit`. This will fetch normally in a real dev/CI environment.
+
+**To extend this consistently:** reuse `.card`, `.docket`, `PageHeader`, and
+`MarginLog` rather than inline styles. Add new semantic colors as CSS
+variables in `globals.css`, not one-off hex values in components.
+
 ## What's intentionally left as a next step
 
 - Auditor onboarding / credential verification (NFR-6) — currently any user
@@ -86,7 +125,7 @@ every point, then delete it.
 - Sign-up / account creation flow — accounts are currently seeded directly in
   Postgres (see README step 2); there's no self-serve registration page.
 
-## Round 2 — frontend, Redis leaderboard, and the graph API (this update)
+## Round 2 — frontend, Redis leaderboard, and the graph API
 
 Added on top of the Sprint 1 rebuild above:
 

@@ -1,6 +1,10 @@
 import type { ButtonHTMLAttributes } from "react";
 
-export function Button(props: ButtonHTMLAttributes<HTMLButtonElement>) {
-  const { type = "button", ...rest } = props;
-  return <button type={type} {...rest} />;
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: "solid" | "ghost";
+}
+
+export function Button({ type = "button", variant = "solid", className = "", ...rest }: ButtonProps) {
+  const variantClass = variant === "ghost" ? "btn btn--ghost" : "btn";
+  return <button type={type} className={`${variantClass} ${className}`.trim()} {...rest} />;
 }

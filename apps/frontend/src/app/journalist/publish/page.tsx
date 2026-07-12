@@ -5,6 +5,8 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { PageHeader } from "@/components/PageHeader";
+import { MarginLog } from "@/components/MarginLog";
 import { apiGet, apiPost, apiPostVoid } from "@/lib/api";
 import { signArticle } from "@/lib/crypto";
 
@@ -28,11 +30,10 @@ export default function PublishPage() {
 
   const [claimText, setClaimText] = useState("");
   const [claimTag, setClaimTag] = useState("");
+  const [claimsAdded, setClaimsAdded] = useState<string[]>([]);
   const [claimStatus, setClaimStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    // Populated for Sequence Stitching (FR-4): pick a parent to chain this
-    // story onto an existing one.
     apiGet<Article[]>("/articles/mine").then(setMyArticles).catch(() => {});
   }, []);
 
@@ -62,7 +63,8 @@ export default function PublishPage() {
     setClaimStatus(null);
     try {
       await apiPostVoid(`/articles/${publishedId}/claims`, { text: claimText, tag: claimTag });
-      setClaimStatus(`Tagged: "${claimText}" (${claimTag})`);
+      setClaimsAdded((prev) => [...prev, `${claimText} — ${claimTag}`]);
+      setClaimStatus(null);
       setClaimText("");
       setClaimTag("");
     } catch {
@@ -70,60 +72,88 @@ export default function PublishPage() {
     }
   }
 
+  const draftNotes = [
+    { text: title ? "Headline set." : "Headline still blank.", tone: title ? ("ok" as const) : ("pending" as const) },
+    { text: body ? "Body drafted." : "Body still empty.", tone: body ? ("ok" as const) : ("pending" as const) },
+    parentArticleId
+      ? { text: "Chained to a parent story.", tone: "ok" as const }
+      : { text: "Standalone — no parent story picked.", tone: "neutral" as const },
+  ];
+
   if (publishedId) {
+    const claimNotes =
+      claimsAdded.length > 0
+        ? claimsAdded.map((c) => ({ text: c, tone: "ok" as const }))
+        : [{ text: "No claims tagged yet — auditors have nothing to verify on this story.", tone: "pending" as const }];
+
     return (
-      <div>
-        <p role="status">Published. Now tag any #Claim statements auditors should verify (FR-3).</p>
-        <form onSubmit={handleAddClaim} style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxWidth: 480 }}>
-          <label>
-            Claim text
-            <Input value={claimText} onChange={(e) => setClaimText(e.target.value)} required />
-          </label>
-          <label>
-            Category tag (e.g. "Economic Analyst")
-            <Input value={claimTag} onChange={(e) => setClaimTag(e.target.value)} required />
-          </label>
-          <Button type="submit">Add claim</Button>
-        </form>
-        {claimStatus && <p>{claimStatus}</p>}
-        <p>
-          <Link href="/journalist/dashboard">Back to dashboard</Link>
-        </p>
-      </div>
+      <>
+        <PageHeader
+          eyebrow="Journalist desk"
+          title="Tag the record"
+          description={`Published. Now mark the specific #Claim statements auditors should verify.`}
+        />
+        <div className="docket">
+          <div className="card app-main--narrow" style={{ padding: "1.5rem" }}>
+            <form onSubmit={handleAddClaim}>
+              <label className="field">
+                Claim text
+                <Input value={claimText} onChange={(e) => setClaimText(e.target.value)} required />
+              </label>
+              <label className="field">
+                Category tag (e.g. "Economic Analyst")
+                <Input value={claimTag} onChange={(e) => setClaimTag(e.target.value)} required />
+              </label>
+              <Button type="submit">Tag this claim</Button>
+            </form>
+            {claimStatus && <p className="notice" data-tone="alert" style={{ marginTop: "1rem" }}>{claimStatus}</p>}
+            <p style={{ marginTop: "1.5rem" }}>
+              <Link href="/journalist/dashboard">← Back to your byline</Link>
+            </p>
+          </div>
+          <MarginLog heading="Tagged so far" notes={claimNotes} />
+        </div>
+      </>
     );
   }
 
   return (
-    <form onSubmit={handlePublish} style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxWidth: 640 }}>
-      <label>
-        Title
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} required />
-      </label>
-      <label>
-        Body
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          required
-          rows={10}
-          style={{ width: "100%" }}
-        />
-      </label>
-      <label>
-        Parent article (optional — Sequence Stitching)
-        <select value={parentArticleId} onChange={(e) => setParentArticleId(e.target.value)}>
-          <option value="">None</option>
-          {myArticles.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.title}
-            </option>
-          ))}
-        </select>
-      </label>
-      {error && <p role="alert">{error}</p>}
-      <Button type="submit" disabled={submitting}>
-        {submitting ? "Signing and publishing…" : "Publish"}
-      </Button>
-    </form>
+    <>
+      <PageHeader eyebrow="Journalist desk" title="File a story" description="Every word here is signed the moment you publish." />
+      <div className="docket">
+        <form onSubmit={handlePublish} className="card app-main--narrow" style={{ padding: "1.5rem" }}>
+          <label className="field">
+            Headline
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} required />
+          </label>
+          <label className="field">
+            Body
+            <textarea
+              className="field-input"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              required
+              rows={10}
+            />
+          </label>
+          <label className="field">
+            Parent story (optional — Sequence Stitching)
+            <select className="field-input" value={parentArticleId} onChange={(e) => setParentArticleId(e.target.value)}>
+              <option value="">None</option>
+              {myArticles.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          {error && <p className="notice" data-tone="alert">{error}</p>}
+          <Button type="submit" disabled={submitting} style={{ marginTop: "0.25rem" }}>
+            {submitting ? "Signing and filing…" : "Publish"}
+          </Button>
+        </form>
+        <MarginLog heading="Draft status" notes={draftNotes} />
+      </div>
+    </>
   );
 }

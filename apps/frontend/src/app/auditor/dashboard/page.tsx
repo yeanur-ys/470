@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { apiGet } from "@/lib/api";
+import { PageHeader } from "@/components/PageHeader";
+import { MarginLog } from "@/components/MarginLog";
 
 interface PendingClaim {
   id: string;
@@ -23,28 +25,52 @@ export default function AuditorDashboardPage() {
       .catch(() => setError("Could not load pending claims."));
   }, []);
 
+  const tagCounts = new Map<string, number>();
+  claims?.forEach((c) => tagCounts.set(c.tag, (tagCounts.get(c.tag) ?? 0) + 1));
+
+  const notes = [
+    ...(claims && claims.length > 0
+      ? [{ text: `${claims.length} claim${claims.length === 1 ? "" : "s"} waiting on a second, non-overlapping tag.`, tone: "pending" as const }]
+      : []),
+    ...Array.from(tagCounts.entries()).map(([tag, count]) => ({
+      text: `${count} claim${count === 1 ? "" : "s"} tagged "${tag}".`,
+      tone: "neutral" as const,
+    })),
+  ];
+
   return (
-    <div>
-      <p>
-        Claims awaiting cross-tag consensus (FR-7): a claim only resolves once auditors holding
-        non-overlapping category tags agree on the same verdict.
-      </p>
-      {error && <p role="alert">{error}</p>}
-      {!claims && !error && <p>Loading…</p>}
-      {claims && claims.length === 0 && <p>Nothing pending right now.</p>}
-      {claims && claims.length > 0 && (
-        <ul>
-          {claims.map((c) => (
-            <li key={c.id} style={{ marginBottom: "0.75rem" }}>
-              <Link href={`/auditor/claims/${c.id}`}>
-                <strong>{c.tag}</strong>: {c.text}
-              </Link>
-              <br />
-              <small>from "{c.articleTitle}"</small>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <>
+      <PageHeader
+        eyebrow="Auditor desk"
+        title="The docket"
+        description="A claim resolves only once auditors holding non-overlapping category tags agree on the same verdict."
+      />
+      <div className="docket">
+        <div>
+          {error && <p className="notice" data-tone="alert">{error}</p>}
+          {!claims && !error && <p className="notice">Loading the docket…</p>}
+          {claims && claims.length === 0 && <p className="notice">Nothing pending right now.</p>}
+          {claims && claims.length > 0 && (
+            <div>
+              {claims.map((c) => (
+                <div className="card" key={c.id}>
+                  <span className="eyebrow">{c.tag}</span>
+                  <p style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontSize: "1.05rem" }}>
+                    “{c.text}”
+                  </p>
+                  <p style={{ color: "var(--ink-soft)", fontSize: "0.85rem", marginBottom: "0.75rem" }}>
+                    from “{c.articleTitle}”
+                  </p>
+                  <Link href={`/auditor/claims/${c.id}`} className="btn btn--ghost">
+                    Review and vote →
+                  </Link>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <MarginLog heading="Docket breakdown" notes={notes} />
+      </div>
+    </>
   );
 }

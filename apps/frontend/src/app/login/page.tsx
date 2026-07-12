@@ -36,29 +36,34 @@ export default function LoginPage() {
       saveSession(res.token, res.role, res.userId);
       router.push(ROLE_HOME[res.role]);
     } catch {
-      setError("Invalid email or password.");
+      setError("Email or password didn't match our records.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main style={{ maxWidth: 360, margin: "4rem auto" }}>
-      <h1>Sign in</h1>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-        <label>
-          Email
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <label>
-          Password
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </label>
-        {error && <p role="alert">{error}</p>}
-        <Button type="submit" disabled={loading}>
-          {loading ? "Signing in…" : "Sign in"}
-        </Button>
-      </form>
-    </main>
+    <div className="auth-screen">
+      <div className="auth-card">
+        <div className="auth-card__masthead">nextGENjournalism</div>
+        <p style={{ color: "var(--ink-soft)", marginBottom: "1.75rem" }}>
+          Sign in to your desk — journalist, auditor, or admin.
+        </p>
+        <form onSubmit={handleSubmit}>
+          <label className="field">
+            Email
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </label>
+          <label className="field">
+            Password
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </label>
+          {error && <p className="notice" data-tone="alert" role="alert">{error}</p>}
+          <Button type="submit" disabled={loading} style={{ width: "100%", marginTop: "0.5rem" }}>
+            {loading ? "Checking credentials…" : "Sign in"}
+          </Button>
+        </form>
+      </div>
+    </div>
   );
 }
