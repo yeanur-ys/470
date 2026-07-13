@@ -1,10 +1,10 @@
 # Migration Notes — base repo → rebuilt structure
 
 This documents what was actually wrong with the `copilot/nextgenjournalism`
-branch and exactly what changed. Keep this file until the team has reviewed
-every point, then delete it.
+branch and exactly what changed since. Keep this file until the team has
+reviewed every point, then delete it.
 
-## What was broken
+## What was broken (original base repo)
 
 1. **Leftover scaffolding never cleaned up.** `apps/docs`, `apps/web`, and
    `apps/api` are the default output of `create-turbo`/`go mod init` and were
@@ -40,7 +40,7 @@ every point, then delete it.
    and the auditor/admin/journalist separation in Section 2.3 of the SRS had
    no working implementation path.
 
-## What changed
+## Round 1 — infra, CDC pipeline, working auth skeleton
 
 - Removed: `apps/docs`, `apps/web`, `apps/api`, `packages/ui`,
   `packages/eslint-config`, `packages/typescript-config`, root `docker-compose.yml`.
@@ -70,64 +70,7 @@ every point, then delete it.
 - Frontend `lib/api.ts` now attaches the JWT from `lib/auth.ts` to every
   request automatically instead of sending nothing.
 
-## Round 3 — frontend redesign (this update)
-
-The frontend previously used ad-hoc inline styles with no visual identity.
-Replaced with a small, consistent design system in `apps/frontend/src/app/globals.css`:
-
-- **Palette** — `--ink` (carbon black), `--paper` (cool onion-skin, not cream),
-  `--stamp-green` (verified), `--pen-red` (false/retracted/alert), `--brass`
-  (pending), `--wire-blue` (links/info). All in `globals.css` as CSS variables.
-- **Type** — Newsreader (serif display, used sparingly, italic for
-  annotations), IBM Plex Sans (UI), IBM Plex Mono (IDs, scores, hashes, nav
-  labels). Loaded via `next/font/google` in `app/layout.tsx`.
-- **Shell** — `.app-shell` / `.nav-rail` / `.app-main`: a left "spine" nav
-  (`components/DashboardNav.tsx`) instead of a top bar.
-- **Docket layout** — `.docket` is a two-column grid (main content + a
-  margin rail) used on every dashboard page.
-- **The Margin Log** (`components/MarginLog.tsx`) — the one signature
-  element. It reads like a copy editor's marginal note, but every line is
-  computed from real fetched data (retracted counts, pending appeals, tag
-  breakdowns, draft completeness). This is the actual "what's outstanding"
-  feature requested — built into the design language rather than bolted on
-  as a separate widget.
-- **Primitives** — `PageHeader`, `Stamp` (ink-stamp status badges: ok /
-  alert / pending / neutral), restyled `Button`/`Input`, `.ledger` (table),
-  `.card`, `.notice`.
-
-Every existing page (login, all three dashboards, publish, appeals, claim
-vote, compliance, public profile + graph) now uses these primitives — no
-page was left on the old inline-style version.
-
-Verified with `tsc --noEmit`, `eslint`, and a full `next build`. Google
-Fonts can't be fetched from this sandbox's restricted network, so the build
-was also run once with the font import stubbed out to confirm the rest of
-the app compiles; the real font-loaded `layout.tsx` still passes
-`tsc --noEmit`. This will fetch normally in a real dev/CI environment.
-
-**To extend this consistently:** reuse `.card`, `.docket`, `PageHeader`, and
-`MarginLog` rather than inline styles. Add new semantic colors as CSS
-variables in `globals.css`, not one-off hex values in components.
-
-## What's intentionally left as a next step
-
-- Auditor onboarding / credential verification (NFR-6) — currently any user
-  row with `role = 'auditor'` is trusted as-is; there's no upload/verification
-  flow for academic or professional credentials yet.
-- Self-corrected claims: there's no endpoint yet for a journalist to mark
-  their own claim as self-corrected (the `self_corrected_claims` column and
-  `w2 > w1` weighting exist and work — nothing currently increments it).
-- Admin appeals review UI: `appeals` rows are created (FR-5) and the pulsing
-  amber state (FR-9) can be driven by `appeals.status == 'active'`, but there's
-  no dashboard yet for an admin to resolve an appeal.
-- The frontend isn't containerized (no `Dockerfile`/compose service) — run it
-  with `pnpm dev` per the README while iterating.
-- Sign-up / account creation flow — accounts are currently seeded directly in
-  Postgres (see README step 2); there's no self-serve registration page.
-
 ## Round 2 — frontend, Redis leaderboard, and the graph API
-
-Added on top of the Sprint 1 rebuild above:
 
 - **Redis leaderboard**: `internal/redisstore`, `internal/leaderboard`.
   `GET /leaderboard` reads the `leaderboard:journalist_rank` sorted set;
@@ -163,3 +106,83 @@ Added on top of the Sprint 1 rebuild above:
   - Verified with `pnpm install`, `next typegen`, `tsc --noEmit`, `eslint`,
     and a full `next build` — all pass clean.
 
+## Round 3 — frontend redesign
+
+The frontend previously used ad-hoc inline styles with no visual identity.
+Replaced with a small, consistent design system in `apps/frontend/src/app/globals.css`:
+
+- **Palette** — `--ink` (carbon black), `--paper` (cool onion-skin, not cream),
+  `--stamp-green` (verified), `--pen-red` (false/retracted/alert), `--brass`
+  (pending), `--wire-blue` (links/info). All in `globals.css` as CSS variables.
+- **Type** — Newsreader (serif display, used sparingly, italic for
+  annotations), IBM Plex Sans (UI), IBM Plex Mono (IDs, scores, hashes, nav
+  labels). Loaded via `next/font/google` in `app/layout.tsx`.
+- **Shell** — `.app-shell` / `.nav-rail` / `.app-main`: a left "spine" nav
+  (`components/DashboardNav.tsx`) instead of a top bar.
+- **Docket layout** — `.docket` is a two-column grid (main content + a
+  margin rail) used on every dashboard page.
+- **The Margin Log** (`components/MarginLog.tsx`) — the one signature
+  element. It reads like a copy editor's marginal note, but every line is
+  computed from real fetched data (retracted counts, pending appeals, tag
+  breakdowns, draft completeness). This is the actual "what's outstanding"
+  feature requested — built into the design language rather than bolted on
+  as a separate widget.
+- **Primitives** — `PageHeader`, `Stamp` (ink-stamp status badges: ok /
+  alert / pending / neutral), restyled `Button`/`Input`, `.ledger` (table),
+  `.card`, `.notice`.
+
+Every existing page (login, all three dashboards, publish, appeals, claim
+vote, compliance, public profile + graph) uses these primitives — no page
+was left on the old inline-style version.
+
+**To extend this consistently:** reuse `.card`, `.docket`, `PageHeader`, and
+`MarginLog` rather than inline styles. Add new semantic colors as CSS
+variables in `globals.css`, not one-off hex values in components.
+
+## Round 4 — signup, self-corrected claims, auditor credential verification
+
+- **`POST /auth/signup`** (`internal/auth/handler.go`) — self-serve
+  registration for journalists and auditors. Admin accounts are deliberately
+  excluded (see README step 2); a self-serve admin role would defeat the
+  point of having a trusted compliance role. Auditors must supply a
+  `credentialUrl` and at least one category tag at signup.
+- **NFR-6, actually enforced now**: added `users.credential_verified`
+  (migration `0002_add_credential_verification.sql`), defaulting to `true`
+  for everyone except newly self-registered auditors, who start `false`.
+  `consensus.Handler.Vote` now rejects a vote with 403 until an admin
+  approves it. New `internal/auditors` package: `GET /admin/auditors/pending`
+  and `POST /admin/auditors/{id}/verify` for that review, plus a matching
+  `/admin/auditors` page in the frontend.
+- **Self-corrected claims**: `POST /claims/{id}/self-correct`
+  (`internal/claims/handler.go`) lets a journalist mark their own pending
+  claim self-corrected before an auditor resolves it, bumping
+  `self_corrected_claims` and recalculating rank score — the previously
+  unused half of formula (1)'s `w2 > w1` weighting. Wired into the
+  journalist dashboard as a small panel; the publish flow now surfaces each
+  tagged claim's ID so there's something to paste in.
+- Refactored the rank-recalculation logic (previously private to
+  `consensus`) into `internal/ranking/recalculate.go` so both `consensus`
+  (auditor-resolved claims) and `claims` (self-corrected claims) share one
+  implementation instead of duplicating the SQL.
+- Frontend: new `/signup` page, linked from `/login` and the homepage.
+
+Every round has been verified with `tsc --noEmit`, `eslint`, and a full
+`next build` on the frontend. Go changes are checked by hand for import
+cycles and brace/paren balance — this sandbox has no outbound access to the
+Go module proxy, so run `go mod tidy && go build ./...` yourself before
+deploying. No new Go dependencies were added in Round 4, so `go.sum`
+shouldn't need new entries beyond what Round 1 already required.
+
+## What's intentionally left as a next step
+
+- Admin appeals review UI: `appeals` rows are created (FR-5) and the pulsing
+  amber state (FR-9) can be driven by `appeals.status == 'active'`, but there's
+  no dashboard yet for an admin to approve/reject an appeal.
+- The frontend isn't containerized (no `Dockerfile`/compose service) — run it
+  with `pnpm dev` per the README while iterating.
+- Password reset / account recovery — there's no flow for a user who forgets
+  their password.
+- The self-correct panel on the journalist dashboard takes a raw claim ID
+  pasted in by hand; it works, but a proper "your claims" browser (like the
+  auditor's pending-claims list) would be friendlier than copy-pasting IDs
+  from the publish flow.

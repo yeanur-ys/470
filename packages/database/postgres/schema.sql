@@ -14,6 +14,7 @@ CREATE TABLE users (
     rank_score      DOUBLE PRECISION NOT NULL DEFAULT 0,
     -- Auditor credential linking for Sybil resistance (NFR-6)
     credential_url  TEXT,
+    credential_verified BOOLEAN NOT NULL DEFAULT true, -- false for newly self-registered auditors until an admin approves
     tags            TEXT[] NOT NULL DEFAULT '{}', -- auditor category tags, e.g. {"Economic Analyst"}
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

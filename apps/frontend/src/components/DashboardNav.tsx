@@ -14,6 +14,7 @@ const NAV_ITEMS: Record<Role, { href: string; label: string }[]> = {
   auditor: [{ href: "/auditor/dashboard", label: "Pending claims" }],
   admin: [
     { href: "/admin/dashboard", label: "Dashboard" },
+    { href: "/admin/auditors", label: "Auditors" },
     { href: "/admin/compliance", label: "Compliance" },
   ],
 };

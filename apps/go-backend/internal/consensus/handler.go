@@ -37,6 +37,18 @@ func (h *Handler) Vote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var credentialVerified bool
+	if err := h.DB.QueryRow(context.Background(),
+		`SELECT credential_verified FROM users WHERE id = $1`, claims.UserID,
+	).Scan(&credentialVerified); err != nil {
+		http.Error(w, "could not verify auditor status", http.StatusInternalServerError)
+		return
+	}
+	if !credentialVerified {
+		http.Error(w, "your credentials are still pending admin verification", http.StatusForbidden)
+		return
+	}
+
 	_, err := h.DB.Exec(context.Background(), `
 		INSERT INTO votes (claim_id, auditor_id, stake, verdict)
 		VALUES ($1, $2, $3, $4)

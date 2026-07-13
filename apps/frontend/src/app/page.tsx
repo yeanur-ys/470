@@ -21,6 +21,9 @@ export default function HomePage() {
         <p style={{ marginTop: "1.75rem" }}>
           <Link href="/login" className="btn" style={{ textDecoration: "none", display: "inline-block" }}>
             Sign in
+          </Link>{" "}
+          <Link href="/signup" className="btn btn--ghost" style={{ textDecoration: "none", display: "inline-block" }}>
+            Open a desk
           </Link>
         </p>
       </div>

@@ -74,7 +74,7 @@ func resolveClaim(ctx context.Context, db *pgxpool.Pool, rdb *redis.Client, clai
 		return err
 	}
 
-	journalistID, rankScore, err := bumpArticleCounterAndRecalculate(ctx, db, claimID, counterColumn)
+	journalistID, rankScore, err := ranking.BumpArticleCounterAndRecalculate(ctx, db, claimID, counterColumn)
 	if err != nil {
 		return err
 	}
@@ -88,32 +88,4 @@ func resolveClaim(ctx context.Context, db *pgxpool.Pool, rdb *redis.Client, clai
 	// FR-8: slash auditors who voted against the resolved consensus.
 	_, err = ApplySlashing(ctx, db, claimID, verdict)
 	return err
-}
-
-// bumpArticleCounterAndRecalculate increments the article's verified/false
-// claim counter, recomputes the author's Journalist Rank Score (SRS formula 1),
-// and persists it. The Postgres update flows to Neo4j automatically through
-// the existing Debezium -> Kafka -> CDC-sync pipeline, so the graph's
-// Corruption Factor visualization stays in sync without extra plumbing here.
-func bumpArticleCounterAndRecalculate(ctx context.Context, db *pgxpool.Pool, claimID, counterColumn string) (journalistID string, rankScore float64, err error) {
-	var readership, verified, selfCorrected, falseClaims float64
-
-	query := `
-		UPDATE articles a
-		SET ` + counterColumn + ` = ` + counterColumn + ` + 1
-		FROM claims c
-		WHERE c.id = $1 AND a.id = c.article_id
-		RETURNING a.journalist_id, a.readership_volume, a.verified_claims, a.self_corrected_claims, a.false_claims
-	`
-	if err := db.QueryRow(ctx, query, claimID).Scan(&journalistID, &readership, &verified, &selfCorrected, &falseClaims); err != nil {
-		return "", 0, err
-	}
-
-	rankScore = ranking.JournalistRankScore(readership, verified, selfCorrected, falseClaims, ranking.DefaultW1, ranking.DefaultW2, ranking.DefaultW3)
-
-	if _, err := db.Exec(ctx, `UPDATE users SET rank_score = $2 WHERE id = $1`, journalistID, rankScore); err != nil {
-		return "", 0, err
-	}
-
-	return journalistID, rankScore, nil
 }

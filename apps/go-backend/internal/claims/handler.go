@@ -7,14 +7,20 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/auth"
+	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/ranking"
+	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/redisstore"
 )
 
 type Handler struct {
-	DB *pgxpool.Pool
+	DB    *pgxpool.Pool
+	Redis *redis.Client
 }
 
-func NewHandler(db *pgxpool.Pool) *Handler {
-	return &Handler{DB: db}
+func NewHandler(db *pgxpool.Pool, rdb *redis.Client) *Handler {
+	return &Handler{DB: db, Redis: rdb}
 }
 
 type createClaimRequest struct {
@@ -72,4 +78,53 @@ func (h *Handler) Pending(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+// SelfCorrect lets a journalist mark their own claim as self-corrected before
+// auditors resolve it. SRS formula (1) weighs self-correction (w2) higher
+// than baseline verification (w1) to reward getting ahead of a mistake.
+func (h *Handler) SelfCorrect(w http.ResponseWriter, r *http.Request) {
+	requester, _ := auth.FromContext(r.Context())
+	claimID := r.PathValue("claimId")
+	ctx := context.Background()
+
+	var journalistID, status string
+	err := h.DB.QueryRow(ctx, `
+		SELECT a.journalist_id, c.status
+		FROM claims c
+		JOIN articles a ON a.id = c.article_id
+		WHERE c.id = $1
+	`, claimID).Scan(&journalistID, &status)
+	if err != nil {
+		http.Error(w, "claim not found", http.StatusNotFound)
+		return
+	}
+	if journalistID != requester.UserID {
+		http.Error(w, "you can only self-correct your own claims", http.StatusForbidden)
+		return
+	}
+	if status != "pending" {
+		http.Error(w, "this claim has already been resolved", http.StatusConflict)
+		return
+	}
+
+	if _, err := h.DB.Exec(ctx, `UPDATE claims SET status = 'self_corrected' WHERE id = $1`, claimID); err != nil {
+		http.Error(w, "failed to self-correct claim", http.StatusInternalServerError)
+		return
+	}
+
+	authorID, rankScore, err := ranking.BumpArticleCounterAndRecalculate(ctx, h.DB, claimID, "self_corrected_claims")
+	if err != nil {
+		http.Error(w, "failed to update rank score", http.StatusInternalServerError)
+		return
+	}
+
+	if h.Redis != nil {
+		if err := h.Redis.ZAdd(ctx, redisstore.LeaderboardKey, redis.Z{Score: rankScore, Member: authorID}).Err(); err != nil {
+			http.Error(w, "failed to update leaderboard", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

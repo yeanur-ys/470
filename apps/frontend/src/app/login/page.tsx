@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
@@ -63,6 +64,9 @@ export default function LoginPage() {
             {loading ? "Checking credentials…" : "Sign in"}
           </Button>
         </form>
+        <p style={{ marginTop: "1.25rem", fontSize: "0.85rem" }}>
+          New here? <Link href="/signup">Open a desk</Link>
+        </p>
       </div>
     </div>
   );

@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPostVoid } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
 import { MarginLog } from "@/components/MarginLog";
 import { Stamp } from "@/components/Stamp";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 
 interface Article {
   id: string;
@@ -23,11 +25,33 @@ export default function JournalistDashboardPage() {
   const [articles, setArticles] = useState<Article[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [claimId, setClaimId] = useState("");
+  const [selfCorrectStatus, setSelfCorrectStatus] = useState<string | null>(null);
+  const [selfCorrectTone, setSelfCorrectTone] = useState<"ok" | "alert">("ok");
+  const [submittingSelfCorrect, setSubmittingSelfCorrect] = useState(false);
+
   useEffect(() => {
     apiGet<Article[]>("/articles/mine")
       .then(setArticles)
       .catch(() => setError("Could not load your articles."));
   }, []);
+
+  async function handleSelfCorrect(e: React.FormEvent) {
+    e.preventDefault();
+    setSelfCorrectStatus(null);
+    setSubmittingSelfCorrect(true);
+    try {
+      await apiPostVoid(`/claims/${claimId}/self-correct`, {});
+      setSelfCorrectTone("ok");
+      setSelfCorrectStatus("Marked self-corrected — this counts toward your rank score.");
+      setClaimId("");
+    } catch {
+      setSelfCorrectTone("alert");
+      setSelfCorrectStatus("Couldn't self-correct that claim — it may not be yours, or already resolved.");
+    } finally {
+      setSubmittingSelfCorrect(false);
+    }
+  }
 
   const notes = buildNotes(articles);
 
@@ -90,6 +114,33 @@ export default function JournalistDashboardPage() {
               </tbody>
             </table>
           )}
+
+          <div className="card" style={{ marginTop: "1.5rem" }}>
+            <span className="eyebrow">Get ahead of a mistake</span>
+            <p style={{ color: "var(--ink-soft)", marginBottom: "1rem" }}>
+              Mark one of your own claims self-corrected before an auditor resolves it — the
+              record rewards catching your own mistakes over waiting to be caught (formula
+              weighs self-correction above baseline verification). Paste a claim ID from the
+              publish flow.
+            </p>
+            <form onSubmit={handleSelfCorrect} style={{ display: "flex", gap: "0.5rem" }}>
+              <Input
+                placeholder="Claim ID"
+                value={claimId}
+                onChange={(e) => setClaimId(e.target.value)}
+                required
+                style={{ flex: 1 }}
+              />
+              <Button type="submit" disabled={submittingSelfCorrect}>
+                {submittingSelfCorrect ? "Submitting…" : "Self-correct"}
+              </Button>
+            </form>
+            {selfCorrectStatus && (
+              <p className="notice" data-tone={selfCorrectTone === "alert" ? "alert" : undefined} style={{ marginTop: "1rem" }}>
+                {selfCorrectStatus}
+              </p>
+            )}
+          </div>
         </div>
 
         <MarginLog notes={notes} />

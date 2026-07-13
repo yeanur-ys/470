@@ -50,26 +50,29 @@ Debezium connector so Postgres writes start streaming into Kafka:
 pnpm debezium:register
 ```
 
-## 2. Seed a user for each role
+**If you already have a running database from before this update**, apply the
+new migration (adds `users.credential_verified` for NFR-6):
 
-The schema doesn't ship demo data. Create one login per role so you can test
-the JWT/role-guard pipeline:
+```bash
+docker exec -i ngj-postgres psql -U ngj -d nextgenjournalism < packages/database/postgres/migrations/0002_add_credential_verification.sql
+```
+
+## 2. Seed an admin account
+
+Journalists and auditors can now sign up themselves (step 5). Admin accounts
+are deliberately excluded from self-serve signup, so seed one directly:
 
 ```bash
 docker exec -it ngj-postgres psql -U ngj -d nextgenjournalism -c "
-INSERT INTO users (email, password_hash, role, display_name, tags) VALUES
-  ('journalist@example.com', crypt('password123', gen_salt('bf')), 'journalist', 'Demo Journalist', '{}'),
-  ('auditor1@example.com',   crypt('password123', gen_salt('bf')), 'auditor',    'Demo Auditor 1', '{\"Economic Analyst\"}'),
-  ('auditor2@example.com',   crypt('password123', gen_salt('bf')), 'auditor',    'Demo Auditor 2', '{\"Geopolitical Analyst\"}'),
-  ('admin@example.com',      crypt('password123', gen_salt('bf')), 'admin',      'Demo Admin', '{}');
+INSERT INTO users (email, password_hash, role, display_name) VALUES
+  ('admin@example.com', crypt('password123', gen_salt('bf')), 'admin', 'Demo Admin');
 "
 ```
 
 > This uses Postgres's `pgcrypto` extension for `crypt()`/`gen_salt()`. If it's
 > not enabled: `docker exec -it ngj-postgres psql -U ngj -d nextgenjournalism -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"`
-> first. The Go backend itself uses `bcrypt` on the Go side for any users it
-> creates later — this seed step just needs *some* bcrypt-compatible hash in
-> the table to log in with.
+> first. The Go backend itself uses `bcrypt` for every account created through
+> `/auth/signup` — this seed step just needs *some* bcrypt-compatible hash.
 
 ## 3. Run the Go backend
 
@@ -86,12 +89,21 @@ Confirm it's up:
 curl http://localhost:8080/health
 ```
 
-Log in and grab a token:
+Sign up as a journalist and grab a token:
 
 ```bash
-curl -X POST http://localhost:8080/auth/login \
+curl -X POST http://localhost:8080/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{"email":"journalist@example.com","password":"password123"}'
+  -d '{"email":"journalist@example.com","password":"password123","displayName":"Demo Journalist","role":"journalist"}'
+```
+
+Or for an auditor (requires a credential URL + at least one tag — you won't be
+able to vote until an admin approves it, see the `/admin/auditors/*` routes below):
+
+```bash
+curl -X POST http://localhost:8080/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"auditor1@example.com","password":"password123","displayName":"Demo Auditor","role":"auditor","credentialUrl":"https://orcid.org/0000-0000-0000-0000","tags":["Economic Analyst"]}'
 ```
 
 Use the returned token on protected routes:
@@ -125,15 +137,21 @@ cp .env.example .env.local 2>/dev/null || echo "NEXT_PUBLIC_API_URL=http://local
 pnpm dev
 ```
 
-Open http://localhost:3010 → **Sign in** with one of the seeded accounts from
-step 2. Each role lands on its own dashboard:
+Open http://localhost:3010 → **Open a desk** to sign up as a journalist or
+auditor, or **Sign in** if you already have an account (admins are seeded
+directly — step 2). Each role lands on its own dashboard:
 
 - **Journalist** (`/journalist/dashboard`): lists your articles, links to
   **Publish** (writes + client-side signs an article, then lets you tag
   `#Claim` statements) and **Appeals** (stake rank score to dispute a ruling).
+  The dashboard also has a **self-correct** panel — paste a claim ID from the
+  publish flow to mark it self-corrected before an auditor resolves it.
 - **Auditor** (`/auditor/dashboard`): lists claims awaiting cross-tag
-  consensus; click into one to stake reputation and vote.
-- **Admin** (`/admin/dashboard`): lists every article; **Compliance** applies
+  consensus; click into one to stake reputation and vote. New auditor
+  signups can't vote until an admin approves their linked credential
+  (NFR-6) — see Admin below.
+- **Admin** (`/admin/dashboard`): lists every article; **Auditors** reviews
+  and approves newly signed-up auditors' credentials; **Compliance** applies
   a GDPR/DMCA retraction (tombstones the content, greys out the node,
   deducts the author's rank score).
 - **Public profile** (`/profile/[journalistId]`): anyone can view a
@@ -147,15 +165,19 @@ step 2. Each role lands on its own dashboard:
 |---|---|---|---|
 | GET | `/health` | public | liveness check |
 | POST | `/auth/login` | public | returns `{ token, role, userId }` |
+| POST | `/auth/signup` | public | journalist or auditor only — see NFR-6 note above |
 | GET | `/articles` | public | latest 100 articles |
 | GET | `/articles/mine` | journalist | your own articles |
 | POST | `/articles` | journalist | create (FR-3/FR-4) |
 | POST | `/articles/{id}/read` | public | increments readership (Postgres + Redis) |
 | POST | `/articles/{id}/claims` | journalist | tag a `#Claim` (FR-3) |
+| POST | `/claims/{id}/self-correct` | journalist | mark your own pending claim self-corrected |
 | POST | `/appeals` | journalist | stake rank score to dispute (FR-5) |
 | GET | `/claims/pending` | auditor | claims awaiting consensus (FR-7) |
-| POST | `/claims/{id}/votes` | auditor | stake + vote (FR-6); auto-resolves + slashes (FR-7/FR-8) |
+| POST | `/claims/{id}/votes` | auditor | requires `credential_verified`; stake + vote (FR-6); auto-resolves + slashes (FR-7/FR-8) |
 | POST | `/admin/articles/{id}/retract` | admin | tombstone + rank penalty (FR-13/14/15) |
+| GET | `/admin/auditors/pending` | admin | auditors awaiting credential review (NFR-6) |
+| POST | `/admin/auditors/{id}/verify` | admin | approve an auditor's linked credential |
 | GET | `/journalists/{id}/graph` | public | nodes/edges for the Sigma.js graph, read from Neo4j |
 | GET | `/leaderboard` | public | top 50 by rank score (Redis sorted set) |
 

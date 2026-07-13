@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/PageHeader";
 import { MarginLog } from "@/components/MarginLog";
-import { apiGet, apiPost, apiPostVoid } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { signArticle } from "@/lib/crypto";
 
 interface Article {
@@ -30,7 +30,7 @@ export default function PublishPage() {
 
   const [claimText, setClaimText] = useState("");
   const [claimTag, setClaimTag] = useState("");
-  const [claimsAdded, setClaimsAdded] = useState<string[]>([]);
+  const [claimsAdded, setClaimsAdded] = useState<{ id: string; text: string; tag: string }[]>([]);
   const [claimStatus, setClaimStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -62,9 +62,11 @@ export default function PublishPage() {
     if (!publishedId) return;
     setClaimStatus(null);
     try {
-      await apiPostVoid(`/articles/${publishedId}/claims`, { text: claimText, tag: claimTag });
-      setClaimsAdded((prev) => [...prev, `${claimText} — ${claimTag}`]);
-      setClaimStatus(null);
+      const res = await apiPost<{ id: string }>(`/articles/${publishedId}/claims`, {
+        text: claimText,
+        tag: claimTag,
+      });
+      setClaimsAdded((prev) => [...prev, { id: res.id, text: claimText, tag: claimTag }]);
       setClaimText("");
       setClaimTag("");
     } catch {
@@ -83,7 +85,7 @@ export default function PublishPage() {
   if (publishedId) {
     const claimNotes =
       claimsAdded.length > 0
-        ? claimsAdded.map((c) => ({ text: c, tone: "ok" as const }))
+        ? claimsAdded.map((c) => ({ text: `${c.text} — ${c.tag}`, tone: "ok" as const }))
         : [{ text: "No claims tagged yet — auditors have nothing to verify on this story.", tone: "pending" as const }];
 
     return (
@@ -107,6 +109,28 @@ export default function PublishPage() {
               <Button type="submit">Tag this claim</Button>
             </form>
             {claimStatus && <p className="notice" data-tone="alert" style={{ marginTop: "1rem" }}>{claimStatus}</p>}
+            {claimsAdded.length > 0 && (
+              <table className="ledger" style={{ marginTop: "1.25rem" }}>
+                <thead>
+                  <tr>
+                    <th>Claim</th>
+                    <th>ID (for self-correction later)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {claimsAdded.map((c) => (
+                    <tr key={c.id}>
+                      <td>
+                        {c.text} <span style={{ color: "var(--ink-soft)" }}>({c.tag})</span>
+                      </td>
+                      <td className="mono" style={{ fontSize: "0.78rem" }}>
+                        {c.id}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
             <p style={{ marginTop: "1.5rem" }}>
               <Link href="/journalist/dashboard">← Back to your byline</Link>
             </p>
