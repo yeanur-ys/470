@@ -1,3 +1,0 @@
-networkx==3.3
-python-louvain==0.16
-neo4j==5.23.0
