@@ -173,6 +173,97 @@ Go module proxy, so run `go mod tidy && go build ./...` yourself before
 deploying. No new Go dependencies were added in Round 4, so `go.sum`
 shouldn't need new entries beyond what Round 1 already required.
 
+## Round 5 — signup was actually broken, and readers had no path at all
+
+Two real bugs, both now fixed:
+
+1. **Every signup failed with "email already exists," even for a brand-new
+   email.** The handler caught every INSERT error and mapped it to that one
+   message, which hid the real problem:
+   - `role` was bound as a plain text parameter against a `user_role` enum
+     column. Postgres only auto-casts an *untyped* literal to an enum, not a
+     parameter with a concrete type (`text`/OID 25) — under the extended
+     query protocol pgx uses, that's a type mismatch on every single insert.
+     Fixed with an explicit `$3::user_role` cast in `auth/handler.go`.
+   - The exact same bug existed in `consensus/voting.go`'s
+     `UPDATE claims SET status = $2` (against the `claim_status` enum) —
+     found while fixing the first one. It would have silently failed the
+     first time any claim actually resolved. Fixed with `$2::claim_status`.
+   - Separately, `tags` is `NOT NULL`, but a journalist's signup request
+     never sends a `tags` field, so it arrived as a Go `nil` slice → SQL
+     `NULL` → constraint violation. Fixed by defaulting to an empty slice
+     before the insert.
+   - The error handling itself was the reason this went undiagnosed: now it
+     checks for Postgres's actual unique-violation code (`23505`) before
+     returning 409, logs anything else server-side with the real error, and
+     tells the caller honestly instead of guessing.
+2. **Readers had no path that didn't run through login/signup.** Reading was
+   already public on the backend (`GET /articles`), but there was no page for
+   it and the homepage only offered "sign in" / "open a desk." Added:
+   - `GET /articles/{id}` (`internal/articles/get.go`) — single-article detail
+     with its tagged claims and their verdicts, so a reader sees the actual
+     evidence, not just a headline. Retracted articles show a plain notice
+     instead of the raw tombstone hash stored in `body`.
+   - `/read` and `/read/[articleId]` in the frontend — a public reading flow
+     with its own lightweight header (`components/PublicHeader.tsx`), no
+     login, no nav rail. Loading a story fires `POST /articles/{id}/read`
+     to increment readership.
+   - Homepage now leads with "Read the news" first; signup/login are
+     secondary, explicitly for journalists/auditors only.
+
+Verified with `tsc --noEmit`, `eslint`, and a full `next build` (14 routes,
+fonts stubbed for this sandbox as in prior rounds). Go changes checked by
+hand for brace/paren balance and import cycles; no new dependencies, so
+`go.sum` needs nothing beyond Round 1. **If you already ran signup attempts
+against the old code**, no cleanup needed — those inserts never succeeded.
+
+## Round 6 — actually running the stack, not just reading it
+
+Previous rounds fixed real bugs found by careful reading, but nothing had
+been run against a live Postgres/Redis. This round installed Go 1.22,
+Postgres 16, and Redis directly (apt) and ran the actual compiled binary
+against them end to end — signup, login, article creation, claim tagging,
+cross-tag consensus voting, slashing, retraction, the leaderboard, and the
+credential-verification gate all exercised for real over HTTP. Two more
+real bugs turned up:
+
+1. **`go.sum` was never actually committed** in earlier rounds — every prior
+   message said "run `go mod tidy` yourself." Without it, `docker build`'s
+   `go mod download` step has no lockfile to work from, which is a very
+   plausible reason the container wouldn't come up at all. This round
+   generated a complete, verified `go.sum` by actually running
+   `go mod tidy` and `go build ./...` successfully (63 entries). Note: this
+   sandbox can't reach `proxy.golang.org`, `golang.org`, or `gopkg.in`
+   (only a fixed domain allowlist), so `go.mod` now carries `replace`
+   directives pointing a handful of transitive dependencies
+   (`golang.org/x/net`, `x/crypto`, `x/text`, `x/sys`, `x/sync`, `x/term`,
+   `x/tools`, `x/mod`, `gopkg.in/yaml.v3`, `gopkg.in/check.v1`) at their
+   equivalent `github.com/golang/*` / `github.com/go-yaml/*` mirrors. These
+   are the real upstream/official mirrors, not forks — safe to keep, and
+   arguably more robust for any CI environment with restricted egress.
+2. **The real cause of "go-backend isn't running in Docker": wrong
+   hostnames.** `go-backend`'s service definition in
+   `infra/docker-compose.yml` loaded `apps/go-backend/.env` via `env_file`.
+   Two failure modes from this one line: if that file didn't exist,
+   `docker compose up` refuses to start the service at all; if it *did*
+   exist (copied from `.env.example` per the README's step 3), it pointed
+   `DATABASE_URL`/`REDIS_URL`/etc. at `localhost` — correct for running the
+   binary natively on your host, wrong inside the container network, where
+   Postgres is reachable as `postgres`, not `localhost`. Either way,
+   `go-backend` would fail to connect on startup and crash-loop under
+   `restart: unless-stopped`, which fails silently from the outside (no
+   obvious startup error, just a container that never stays up) — exactly
+   matching "isn't running properly." Fixed by giving `go-backend` its own
+   explicit `environment:` block with the correct in-network hostnames,
+   the same pattern `python-worker` already used correctly. `.env.example`
+   now says explicitly it's for the native (non-Docker) path only.
+
+Verified this round: the compiled binary running against real Postgres +
+Redis handled every endpoint correctly, including a live simulation of the
+exact Dockerfile build steps (`go mod download` + `go build` from a clean
+checkout) using the new `go.sum`. Frontend unaffected this round; its own
+`tsc`/`eslint`/`build` checks from Round 5 still stand.
+
 ## What's intentionally left as a next step
 
 - Admin appeals review UI: `appeals` rows are created (FR-5) and the pulsing

@@ -95,8 +95,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-    env_file:
-      - ../apps/go-backend/.env
+      neo4j:
+        condition: service_started
+    environment:
+      PORT: "8080"
+      DATABASE_URL: postgres://ngj:ngj_dev_password@postgres:5432/nextgenjournalism
+      REDIS_URL: redis://redis:6379
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ngj_dev_password
+      KAFKA_BROKERS: kafka:9092
+      JWT_SECRET: dev-secret-change-me
     ports:
       - "8080:8080"
 

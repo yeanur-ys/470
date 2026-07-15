@@ -19,6 +19,26 @@ require (
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
-	golang.org/x/sync v0.7.0 // indirect
+	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 )
+
+replace gopkg.in/yaml.v3 => github.com/go-yaml/yaml v0.0.0-20220521103104-8f96da9f5d5e
+
+replace golang.org/x/net => github.com/golang/net v0.17.0
+
+replace golang.org/x/crypto => github.com/golang/crypto v0.24.0
+
+replace golang.org/x/text => github.com/golang/text v0.14.0
+
+replace golang.org/x/sys => github.com/golang/sys v0.17.0
+
+replace golang.org/x/sync => github.com/golang/sync v0.7.0
+
+replace golang.org/x/term => github.com/golang/term v0.17.0
+
+replace gopkg.in/check.v1 => github.com/go-check/check v0.0.0-20200902074654-038fdea0a05b
+
+replace golang.org/x/tools => github.com/golang/tools v0.6.0
+
+replace golang.org/x/mod => github.com/golang/mod v0.15.0

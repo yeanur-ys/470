@@ -137,7 +137,12 @@ cp .env.example .env.local 2>/dev/null || echo "NEXT_PUBLIC_API_URL=http://local
 pnpm dev
 ```
 
-Open http://localhost:3010 → **Open a desk** to sign up as a journalist or
+Open http://localhost:3010 → **Read the news** needs no account at all —
+`/read` lists every story, `/read/[id]` shows the full text plus every
+tagged claim's verdict. That's the entire reader experience; it never
+touches `/login` or `/signup`.
+
+For the other three roles: **Open a desk** to sign up as a journalist or
 auditor, or **Sign in** if you already have an account (admins are seeded
 directly — step 2). Each role lands on its own dashboard:
 
@@ -167,6 +172,7 @@ directly — step 2). Each role lands on its own dashboard:
 | POST | `/auth/login` | public | returns `{ token, role, userId }` |
 | POST | `/auth/signup` | public | journalist or auditor only — see NFR-6 note above |
 | GET | `/articles` | public | latest 100 articles |
+| GET | `/articles/{id}` | public | single article + its tagged claims and their verdicts — the reader page |
 | GET | `/articles/mine` | journalist | your own articles |
 | POST | `/articles` | journalist | create (FR-3/FR-4) |
 | POST | `/articles/{id}/read` | public | increments readership (Postgres + Redis) |
@@ -186,6 +192,13 @@ directly — step 2). Each role lands on its own dashboard:
 ```bash
 pnpm infra:up   # builds and starts go-backend + python-worker too
 ```
+
+`go-backend`'s environment (Postgres/Redis/Neo4j/Kafka hostnames) is set
+directly in `infra/docker-compose.yml` for the container network — you don't
+need to create `apps/go-backend/.env` for this path. That file (from
+`.env.example`) is only for running the binary natively on your host machine
+(step 3), where those services are reached via `localhost` instead of their
+in-network service names.
 
 (The frontend isn't containerized yet — run it with `pnpm dev` per step 5
 while iterating; add it to `infra/docker-compose.yml` once its Dockerfile
