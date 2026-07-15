@@ -18,10 +18,11 @@ import (
 )
 
 type Deps struct {
-	DB     *pgxpool.Pool
-	Redis  *redis.Client
-	Neo4j  neo4j.DriverWithContext
-	Tokens *auth.TokenService
+	DB               *pgxpool.Pool
+	Redis            *redis.Client
+	Neo4j            neo4j.DriverWithContext
+	Tokens           *auth.TokenService
+	CORSAllowOrigins string
 }
 
 func NewRouter(deps Deps) http.Handler {
@@ -65,8 +66,10 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("GET /admin/auditors/pending", RequireRole("admin")(http.HandlerFunc(auditorsHandler.Pending)))
 	mux.Handle("POST /admin/auditors/{auditorId}/verify", RequireRole("admin")(http.HandlerFunc(auditorsHandler.Verify)))
 
-	// Authenticate wraps everything so protected handlers above can read claims
-	// from context; it does not itself reject unauthenticated requests, so the
+	// CORS must wrap everything, outermost: a browser's preflight OPTIONS
+	// request needs an answer before Authenticate or the mux ever see it.
+	// Authenticate wraps the mux so protected handlers can read claims from
+	// context; it does not itself reject unauthenticated requests, so the
 	// public routes above stay open to everyone.
-	return Authenticate(deps.Tokens)(mux)
+	return CORS(deps.CORSAllowOrigins)(Authenticate(deps.Tokens)(mux))
 }

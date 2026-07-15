@@ -106,6 +106,7 @@ services:
       NEO4J_PASSWORD: ngj_dev_password
       KAFKA_BROKERS: kafka:9092
       JWT_SECRET: dev-secret-change-me
+      CORS_ALLOW_ORIGINS: http://localhost:3010
     ports:
       - "8080:8080"
 

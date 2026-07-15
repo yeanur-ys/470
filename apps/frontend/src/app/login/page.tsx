@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { apiPost } from "@/lib/api";
+import { apiPost, ApiError } from "@/lib/api";
 import { saveSession, type Role } from "@/lib/auth";
 
 interface LoginResponse {
@@ -36,8 +36,14 @@ export default function LoginPage() {
       const res = await apiPost<LoginResponse>("/auth/login", { email, password });
       saveSession(res.token, res.role, res.userId);
       router.push(ROLE_HOME[res.role]);
-    } catch {
-      setError("Email or password didn't match our records.");
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.status !== undefined
+          ? "Email or password didn't match our records."
+          : err instanceof ApiError
+            ? err.message
+            : "Something went wrong signing in.",
+      );
     } finally {
       setLoading(false);
     }

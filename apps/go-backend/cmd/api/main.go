@@ -41,10 +41,11 @@ func main() {
 
 	tokens := auth.NewTokenService(cfg.JWTSecret)
 	handler := server.NewRouter(server.Deps{
-		DB:     pool,
-		Redis:  redisClient,
-		Neo4j:  neo4jDriver,
-		Tokens: tokens,
+		DB:               pool,
+		Redis:            redisClient,
+		Neo4j:            neo4jDriver,
+		Tokens:           tokens,
+		CORSAllowOrigins: cfg.CORSAllowOrigins,
 	})
 
 	log.Printf("go-backend listening on :%s", cfg.Port)

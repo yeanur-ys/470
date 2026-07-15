@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { apiPost } from "@/lib/api";
+import { apiPost, ApiError } from "@/lib/api";
 import { saveSession, type Role } from "@/lib/auth";
 
 interface SignupResponse {
@@ -54,8 +54,8 @@ export default function SignupPage() {
       });
       saveSession(res.token, res.role, res.userId);
       router.push(ROLE_HOME[res.role]);
-    } catch {
-      setError("Could not create that account — the email may already be registered.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong creating that account.");
     } finally {
       setLoading(false);
     }
