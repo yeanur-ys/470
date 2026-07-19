@@ -23,9 +23,9 @@
   --wire-blue-soft: #e3e9ee;
 
   /* Type */
-  --font-display: var(--font-newsreader), "Iowan Old Style", Georgia, serif;
-  --font-body: var(--font-plex-sans), -apple-system, sans-serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, "SFMono-Regular", monospace;
+  --font-display: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --font-body: "IBM Plex Sans", -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
 
   /* Layout */
   --nav-width: 15rem;
