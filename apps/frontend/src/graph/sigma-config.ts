@@ -34,3 +34,34 @@ export function corruptionToColor(corruptionFactor: number): string {
 export function readershipToSize(readershipVolume: number): number {
   return 4 + Math.log10(1 + Math.max(0, readershipVolume)) * 4;
 }
+
+// A fixed categorical palette for the cluster legend (F-07/NFR-11). This is
+// deliberately separate from corruptionToColor: a node's fill always encodes
+// its Corruption Factor (FR-10), which is a continuous, safety-relevant
+// signal. Cluster identity is a discrete, structural signal, so it only ever
+// shows up as the legend swatch and toggle affordance, never overriding the
+// node's own fill color.
+const CLUSTER_PALETTE = ["#35506b", "#93691f", "#2f6f4e", "#a83a2e", "#6b4c9a", "#1f7a8c", "#b1802a", "#5c6b73"];
+
+export function clusterColor(clusterId: number): string {
+  const index = ((clusterId % CLUSTER_PALETTE.length) + CLUSTER_PALETTE.length) % CLUSTER_PALETTE.length;
+  return CLUSTER_PALETTE[index] ?? sigmaConfig.defaultNodeColor;
+}
+
+// F-08 Time-Based Clustering: buckets articles into fixed time periods so
+// historical nodes can be grouped/filtered chronologically, the same way
+// clusterColor groups them by community. Order matters here — ERA_ORDER
+// controls display order in the legend, oldest bucket last.
+export const ERA_ORDER = ["Last 30 days", "Last 12 months", "Older"] as const;
+export type Era = (typeof ERA_ORDER)[number];
+
+export function articleEra(createdAt: string | undefined, now: Date = new Date()): Era {
+  if (!createdAt) return "Older";
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return "Older";
+
+  const days = (now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24);
+  if (days <= 30) return "Last 30 days";
+  if (days <= 365) return "Last 12 months";
+  return "Older";
+}

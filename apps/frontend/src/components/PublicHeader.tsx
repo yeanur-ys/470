@@ -18,6 +18,9 @@ export function PublicHeader() {
         <Link href="/read" className="eyebrow" style={{ textDecoration: "none" }}>
           Read
         </Link>
+        <Link href="/leaderboard" className="eyebrow" style={{ textDecoration: "none" }}>
+          Leaderboard
+        </Link>
         <Link href="/login" className="eyebrow" style={{ textDecoration: "none" }}>
           Sign in
         </Link>

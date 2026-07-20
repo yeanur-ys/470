@@ -345,6 +345,56 @@ just spot-checking. Go backend re-verified with `go build`/`go vet` on this
 same clone; the CORS fix from the previous round is confirmed present and
 working (no more nested-duplicate folders either — that got cleaned up too).
 
+## Round 9 — cluster legend, F-08, real Go tests, and demo seed data
+
+- **Cluster legend**: the actual defining feature of the sigmajs.org/demo
+  reference I'd missed — a clickable legend toggling each Louvain cluster's
+  visibility, composed correctly with the existing semantic-zoom hiding
+  logic in `useSemanticZoom.ts` so the two mechanisms share one `hidden`
+  attribute instead of fighting over it. Cluster color is a separate,
+  categorical palette from the node's own corruption-factor fill (FR-10
+  still governs what a node's color means; the legend is an additional
+  layer, not a replacement).
+- **F-08 Time-Based Clustering**: `createdAt` wasn't even synced to Neo4j
+  before this — added it to the CDC consumer and the graph API. Frontend
+  buckets into "Last 30 days / Last 12 months / Older" (a fixed rule since
+  the SRS doesn't specify one) with its own toggleable legend, same pattern
+  as the cluster legend.
+- **F-15 confirmed backend-complete**: `graph/handler.go` now returns
+  `hasActiveAppeal` per node (a Postgres query merged into the Neo4j-sourced
+  response); `LineageGraph.tsx` renders a real pulsing amber ring overlay,
+  repositioned on camera movement via `sigma.getNodeDisplayData()`.
+- **F-19 leaderboard**: added the missing `/leaderboard` page; enriched the
+  backend to attach display names to Redis's bare journalist IDs via one
+  batched Postgres query.
+- **EX-02, started for real**: `ranking`, `consensus`, and `auth` now have
+  actual checked-in unit tests (22 cases) — the three SRS formulas, the
+  critical F-11 edge case (two auditors sharing one tag must NOT reach
+  consensus — that's the entire point of "cross-tag"), and JWT round-trip/
+  tamper/expiry/wrong-secret rejection. Extracted `consensus.TryResolve`'s
+  cross-tag logic into a pure, testable `EvaluateCrossTagConsensus` function
+  in the process. Fixed `gofmt` violations in 3 older files and hardened
+  `backend-ci.yml` to run `gofmt`/`build`/`vet`/`test` in sequence instead of
+  just `test` (which would have silently passed on zero test files before).
+  Still uncovered: `articles`, `claims`, `compliance`, `graph`, `auditors`,
+  `leaderboard` (thin handlers over SQL — need a test database or mocking),
+  and the frontend has no test runner at all.
+- **Demo seed data**: `packages/database/postgres/seed.sql` +
+  `packages/database/neo4j/seed.cypher` (see `SEED_DATA.md`) — two
+  journalists, three auditors (one deliberately unverified, to demo the
+  NFR-6 gate), article chains spanning all three eras with claims in every
+  status, an active dispute, and a retraction. Postgres side verified by
+  actually loading it into a live database in this sandbox; the Neo4j side
+  could not be executed here (no route to Neo4j's own package repo to
+  install it) — written by hand against the same `MERGE`/`SET` patterns
+  already in use elsewhere, but genuinely unverified. Flag it immediately if
+  it errors when you actually run it.
+
+Verified this round: `go build`/`go vet`/`go test ./...` (all pass, 22 test
+cases) and `tsc --noEmit`/`eslint`/`next build` (all pass, 15 routes). The
+Postgres seed was loaded into a real database and its output checked by hand
+(corruption factors, readership spread, retraction all landed as intended).
+
 ## What's intentionally left as a next step
 
 - Admin appeals review UI: `appeals` rows are created (FR-5) and the pulsing

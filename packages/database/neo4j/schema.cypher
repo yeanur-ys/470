@@ -22,3 +22,4 @@ FOR (t:Tag) REQUIRE t.name IS UNIQUE;
 
 CREATE INDEX article_corruption_idx IF NOT EXISTS FOR (a:Article) ON (a.corruptionFactor);
 CREATE INDEX article_readership_idx IF NOT EXISTS FOR (a:Article) ON (a.readershipVolume);
+CREATE INDEX article_created_at_idx IF NOT EXISTS FOR (a:Article) ON (a.createdAt); // F-08 Time-Based Clustering

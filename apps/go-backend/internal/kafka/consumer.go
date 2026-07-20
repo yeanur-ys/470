@@ -25,6 +25,12 @@ type debeziumEnvelope struct {
 			SelfCorrectedClaims int64   `json:"self_corrected_claims"`
 			FalseClaims         int64   `json:"false_claims"`
 			IsRetracted         bool    `json:"is_retracted"`
+			// Debezium's Postgres connector encodes a `timestamptz` column as
+			// io.debezium.time.ZonedTimestamp, which the default JSON
+			// converter renders as an ISO-8601 string (e.g.
+			// "2024-01-15T10:30:00Z") — not epoch millis/micros, which is
+			// what timestamp-without-timezone columns get instead.
+			CreatedAt string `json:"created_at"`
 		} `json:"after"`
 	} `json:"payload"`
 }
@@ -71,6 +77,7 @@ func RunArticleSync(ctx context.Context, brokers []string, driver neo4j.DriverWi
 			readershipVolume: after.ReadershipVolume,
 			corruptionFactor: corruptionFactor,
 			isRetracted:      after.IsRetracted,
+			createdAt:        after.CreatedAt,
 		}); err != nil {
 			log.Printf("neo4j sync error for article %s: %v", after.ID, err)
 		}
@@ -85,6 +92,7 @@ type articleNode struct {
 	readershipVolume int64
 	corruptionFactor float64
 	isRetracted      bool
+	createdAt        string
 }
 
 func upsertArticleNode(ctx context.Context, driver neo4j.DriverWithContext, n articleNode) error {
@@ -97,14 +105,15 @@ func upsertArticleNode(ctx context.Context, driver neo4j.DriverWithContext, n ar
 			SET a.title = $title,
 			    a.readershipVolume = $readership,
 			    a.corruptionFactor = $corruptionFactor,
-			    a.isRetracted = $isRetracted
+			    a.isRetracted = $isRetracted,
+			    a.createdAt = coalesce($createdAt, a.createdAt)
 			WITH a
 			MERGE (j:Journalist {id: $journalistId})
 			MERGE (j)-[:AUTHORED]->(a)
 		`, map[string]any{
 			"id": n.id, "title": n.title, "readership": n.readershipVolume,
 			"corruptionFactor": n.corruptionFactor, "isRetracted": n.isRetracted,
-			"journalistId": n.journalistID,
+			"journalistId": n.journalistID, "createdAt": nullIfEmpty(n.createdAt),
 		}); err != nil {
 			return nil, err
 		}
@@ -121,4 +130,11 @@ func upsertArticleNode(ctx context.Context, driver neo4j.DriverWithContext, n ar
 		return nil, nil
 	})
 	return err
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

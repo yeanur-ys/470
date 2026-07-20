@@ -110,8 +110,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 type createAppealRequest struct {
-	ArticleID      string  `json:"articleId"`
-	StakedPercent  float64 `json:"stakedPercent"`
+	ArticleID     string  `json:"articleId"`
+	StakedPercent float64 `json:"stakedPercent"`
 }
 
 // CreateAppeal implements FR-5: journalists dispute a ruling by staking a

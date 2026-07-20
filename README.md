@@ -74,6 +74,11 @@ INSERT INTO users (email, password_hash, role, display_name) VALUES
 > first. The Go backend itself uses `bcrypt` for every account created through
 > `/auth/signup` — this seed step just needs *some* bcrypt-compatible hash.
 
+**Want more than one empty account to look at?** `SEED_DATA.md` has a full
+demo dataset — two journalists, three auditors (one deliberately unverified),
+article chains with claims in every status, an active dispute, and a
+retraction — plus the matching Neo4j data so the graph renders immediately.
+
 ## 3. Run the Go backend
 
 ```bash

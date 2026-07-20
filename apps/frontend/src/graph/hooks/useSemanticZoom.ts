@@ -10,8 +10,21 @@ import { sigmaConfig } from "../sigma-config";
  * (`clusterId`, written by the Python worker), the node with the highest
  * readership acts as the visible "hub" while the camera is zoomed out; the
  * rest hide until the reader zooms past `maxCameraRatio / 2`.
+ *
+ * `hiddenClusters` and `hiddenEras` both compose with that: a cluster or time
+ * period the reader has manually toggled off in a legend (the click-to-
+ * show/hide interaction from the Sigma.js "cartography of Wikipedia"
+ * reference) stays hidden regardless of zoom level. All three mechanisms
+ * write the same `hidden` node attribute, so this hook is the single place
+ * that reconciles them (F-07 cluster grouping and F-08 time-period grouping
+ * are separate, composable filters — a node can be hidden by either).
  */
-export function useSemanticZoom(sigma: Sigma | null, graph: Graph | null): void {
+export function useSemanticZoom(
+  sigma: Sigma | null,
+  graph: Graph | null,
+  hiddenClusters: Set<number>,
+  hiddenEras: Set<string>,
+): void {
   useEffect(() => {
     if (!sigma || !graph) return;
 
@@ -33,7 +46,9 @@ export function useSemanticZoom(sigma: Sigma | null, graph: Graph | null): void 
       graph!.forEachNode((node, attrs) => {
         const cluster = String(attrs.clusterId ?? node);
         const isHub = hubByCluster.get(cluster) === node;
-        graph!.setNodeAttribute(node, "hidden", zoomedOut && !isHub);
+        const clusterHidden = typeof attrs.clusterId === "number" && hiddenClusters.has(attrs.clusterId);
+        const eraHidden = typeof attrs.era === "string" && hiddenEras.has(attrs.era);
+        graph!.setNodeAttribute(node, "hidden", clusterHidden || eraHidden || (zoomedOut && !isHub));
       });
       sigma!.refresh();
     }
@@ -43,5 +58,5 @@ export function useSemanticZoom(sigma: Sigma | null, graph: Graph | null): void 
     return () => {
       sigma.getCamera().removeListener("updated", applyZoomState);
     };
-  }, [sigma, graph]);
+  }, [sigma, graph, hiddenClusters, hiddenEras]);
 }

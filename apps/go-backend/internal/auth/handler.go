@@ -74,7 +74,7 @@ type signupRequest struct {
 	DisplayName   string   `json:"displayName"`
 	Role          string   `json:"role"`          // "journalist" or "auditor" only — see below
 	CredentialURL string   `json:"credentialUrl"` // required for auditors, NFR-6
-	Tags          []string `json:"tags"`           // auditor category tags, required for auditors
+	Tags          []string `json:"tags"`          // auditor category tags, required for auditors
 }
 
 // Signup implements FR-1/FR-2 self-registration. Admin accounts are

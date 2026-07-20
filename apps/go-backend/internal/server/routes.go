@@ -33,8 +33,8 @@ func NewRouter(deps Deps) http.Handler {
 	claimsHandler := claims.NewHandler(deps.DB, deps.Redis)
 	consensusHandler := consensus.NewHandler(deps.DB, deps.Redis)
 	complianceHandler := compliance.NewHandler(deps.DB)
-	leaderboardHandler := leaderboard.NewHandler(deps.Redis)
-	graphHandler := graph.NewHandler(deps.Neo4j)
+	leaderboardHandler := leaderboard.NewHandler(deps.Redis, deps.DB)
+	graphHandler := graph.NewHandler(deps.Neo4j, deps.DB)
 	auditorsHandler := auditors.NewHandler(deps.DB)
 
 	// --- Public routes ---

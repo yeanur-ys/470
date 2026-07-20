@@ -484,3 +484,30 @@ textarea.field-input {
   font-size: 1.6rem;
   margin-bottom: 0.15rem;
 }
+
+/* ---------- Under-dispute pulse (FR-9 / F-15) ---------- */
+/* An absolutely-positioned ring over any graph node with an active appeal,
+   repositioned in JS to track the node's on-screen coordinates. Canvas-based
+   Sigma.js nodes can't run a CSS animation directly, so this overlays one. */
+.dispute-pulse {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 50%;
+  border: 2px solid var(--brass);
+  animation: dispute-pulse 1.6s ease-out infinite;
+}
+
+@keyframes dispute-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(177, 128, 42, 0.55);
+    opacity: 1;
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(177, 128, 42, 0);
+    opacity: 0.6;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(177, 128, 42, 0);
+    opacity: 1;
+  }
+}
