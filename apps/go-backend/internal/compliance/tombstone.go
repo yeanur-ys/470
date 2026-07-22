@@ -11,6 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// RetractionBasePenalty is the fixed component of the FR-15 rank deduction;
+// the reach-scaled component is added on top at retraction time.
+const RetractionBasePenalty = 2.0
+
 type Handler struct {
 	DB *pgxpool.Pool
 }
@@ -35,22 +39,38 @@ func (h *Handler) Retract(w http.ResponseWriter, r *http.Request) {
 	articleID := r.PathValue("articleId")
 	ctx := context.Background()
 
-	var title, body, journalistID string
-	err := h.DB.QueryRow(ctx, `
-		SELECT title, body, journalist_id FROM articles WHERE id = $1
-	`, articleID).Scan(&title, &body, &journalistID)
-	if err != nil {
-		http.Error(w, "article not found", http.StatusNotFound)
-		return
-	}
-
-	hash := tombstoneHash(title, body)
 	tx, err := h.DB.Begin(ctx)
 	if err != nil {
 		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback(ctx)
+
+	// SELECT ... FOR UPDATE inside the same transaction that writes: the
+	// previous version read the article on the pool, then opened a separate
+	// transaction to write, so two concurrent retract calls could both read
+	// is_retracted = false and both apply the rank penalty. Re-checking
+	// is_retracted under the row lock makes the operation idempotent — a
+	// second retraction of the same article is now a no-op rather than
+	// another permanent deduction from the author's score.
+	var title, body, journalistID string
+	var alreadyRetracted bool
+	if err := tx.QueryRow(ctx, `
+		SELECT title, body, journalist_id, is_retracted FROM articles WHERE id = $1 FOR UPDATE
+	`, articleID).Scan(&title, &body, &journalistID, &alreadyRetracted); err != nil {
+		http.Error(w, "article not found", http.StatusNotFound)
+		return
+	}
+	if alreadyRetracted {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status": "already_retracted",
+			"detail": "this article was already tombstoned; no further penalty applied",
+		})
+		return
+	}
+
+	hash := tombstoneHash(title, body)
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE articles
@@ -65,9 +85,16 @@ func (h *Handler) Retract(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// FR-15: permanent rank-score deduction for the retracted article's author.
+	// Scaled by reach rather than a flat constant — a retracted story that
+	// 100,000 people read did more damage than one that 12 people read, and
+	// log10 keeps that proportionate on the same scale the Rank Score itself
+	// uses for readership (SRS formula 1's log10(1+V) dampener).
 	if _, err := tx.Exec(ctx, `
-		UPDATE users SET rank_score = rank_score - 2 WHERE id = $1
-	`, journalistID); err != nil {
+		UPDATE users u
+		SET rank_score = GREATEST(u.rank_score - ($2 + log(10, 1 + a.readership_volume)), 0)
+		FROM articles a
+		WHERE u.id = $1 AND a.id = $3
+	`, journalistID, RetractionBasePenalty, articleID); err != nil {
 		http.Error(w, "failed to apply rank penalty", http.StatusInternalServerError)
 		return
 	}
