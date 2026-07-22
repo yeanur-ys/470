@@ -31,8 +31,20 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    // suppressHydrationWarning is needed on <html> and <body> because browser
+    // extensions mutate them before React hydrates. Grammar checkers
+    // (LanguageTool adds data-lt-installed), password managers, dark-mode
+    // toggles and translation tools all inject attributes into these two
+    // elements specifically, since they're the first ones in the document.
+    // React then compares its server HTML against a DOM that a third party has
+    // already edited, and reports a mismatch the app can do nothing about.
+    //
+    // This is narrower than it looks: the flag applies only to the attributes
+    // and text of the element it's on — one level deep, not the subtree. Real
+    // hydration bugs anywhere inside the app still surface normally, so this
+    // silences the extension noise without hiding our own mistakes.
+    <html lang="en" suppressHydrationWarning>
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }
