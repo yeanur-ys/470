@@ -74,10 +74,35 @@ INSERT INTO users (email, password_hash, role, display_name) VALUES
 > first. The Go backend itself uses `bcrypt` for every account created through
 > `/auth/signup` — this seed step just needs *some* bcrypt-compatible hash.
 
-**Want more than one empty account to look at?** `SEED_DATA.md` has a full
-demo dataset — two journalists, three auditors (one deliberately unverified),
-article chains with claims in every status, an active dispute, and a
-retraction — plus the matching Neo4j data so the graph renders immediately.
+**Want more than one empty account to look at?** `SEED_DATA.md` has a small
+demo dataset — two journalists, three auditors, article chains, a dispute and
+a retraction.
+
+### Large demo dataset (recommended)
+
+For anything involving the graph, use the large seed instead. Community
+detection, semantic zooming and the leaderboard all need hundreds of nodes
+before they mean anything:
+
+```bash
+# Apply migrations first (0003 adds the auditor reputation ledger + locks)
+docker exec -i ngj-postgres psql -U ngj -d nextgenjournalism \
+  < packages/database/postgres/migrations/0003_auditor_reputation_and_locks.sql
+
+docker exec -i ngj-postgres psql -U ngj -d nextgenjournalism \
+  < packages/database/postgres/seed_large.sql
+```
+
+Generates 14 journalists, 16 auditors (3 awaiting credential approval), 900
+articles in lineage chains across 12 claim categories, ~2,250 claims in every
+status, ~1,500 settled votes, 12 active appeals and 8 retractions. Every
+password is `password123`; accounts are `journalist1@demo.nextgenjournalism.test`
+… , `auditor1@…`, `admin@demo.nextgenjournalism.test`.
+
+It's deterministic (`setseed`) and safe to re-run — it removes only the rows it
+generated. **Register the Debezium connector first** (step above), so the
+inserts stream into Neo4j through the CDC pipeline rather than needing a
+separate graph load.
 
 ## 3. Run the Go backend
 
@@ -168,6 +193,14 @@ directly — step 2). Each role lands on its own dashboard:
   journalist's lineage graph — a live Sigma.js/WebGL rendering of their
   article graph read straight from Neo4j, colored by Corruption Factor and
   sized by readership.
+- **Epistemic graph** (`/graph`): the whole platform in one view, also public.
+  Nodes are sized by readership (FR-12) and coloured either by Louvain topic
+  community (the default here) or by Corruption Factor (FR-10) — toggle at the
+  top. Each community is labelled on the canvas with the claim category that
+  dominates it. Scroll to zoom (semantic zoom collapses communities to their
+  most-read stories as you pull back), hover a node to isolate its
+  neighbourhood, click for details, and click a legend chip to hide a
+  community or time period. Articles under an active appeal pulse amber (FR-9).
 
 ## API reference (go-backend)
 
@@ -189,7 +222,8 @@ directly — step 2). Each role lands on its own dashboard:
 | POST | `/admin/articles/{id}/retract` | admin | tombstone + rank penalty (FR-13/14/15) |
 | GET | `/admin/auditors/pending` | admin | auditors awaiting credential review (NFR-6) |
 | POST | `/admin/auditors/{id}/verify` | admin | approve an auditor's linked credential |
-| GET | `/journalists/{id}/graph` | public | nodes/edges for the Sigma.js graph, read from Neo4j |
+| GET | `/journalists/{id}/graph` | public | nodes/edges for one journalist's Sigma.js graph, read from Neo4j |
+| GET | `/graph` | public | the platform-wide epistemic graph: every article, lineage + co-tag edges, Louvain clusters named by dominant tag (`?limit=` up to 10000) |
 | GET | `/leaderboard` | public | top 50 by rank score (Redis sorted set) |
 
 ## Or run everything through Docker
