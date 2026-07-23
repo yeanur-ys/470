@@ -48,6 +48,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /articles/{articleId}", articlesHandler.Get)
 	mux.HandleFunc("POST /articles/{articleId}/read", articlesHandler.RecordRead)
 	mux.HandleFunc("GET /journalists/{journalistId}/graph", graphHandler.JournalistGraph)
+	mux.HandleFunc("GET /graph", graphHandler.GlobalGraph) // platform-wide epistemic graph (NFR-11)
 	mux.HandleFunc("GET /leaderboard", leaderboardHandler.Top)
 
 	// --- Journalist routes (FR-3, FR-4, FR-5) ---

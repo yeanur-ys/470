@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Graph from "graphology";
 import Sigma from "sigma";
@@ -8,15 +8,29 @@ import forceAtlas2 from "graphology-layout-forceatlas2";
 
 import { apiGet } from "@/lib/api";
 import { Input } from "@/components/ui/Input";
-import { corruptionToColor, readershipToSize, sigmaConfig, clusterColor, articleEra, ERA_ORDER, type Era } from "@/graph/sigma-config";
+import {
+  ERA_ORDER,
+  articleEra,
+  clusterColor,
+  nodeColor,
+  readershipToSize,
+  sigmaConfig,
+  type ColorMode,
+  type Era,
+} from "@/graph/sigma-config";
 import { useSemanticZoom } from "@/graph/hooks/useSemanticZoom";
+import { useClusterLabels } from "@/graph/useClusterLabels";
 
 interface GraphNode {
   id: string;
   title: string;
+  journalistId?: string;
+  journalistName?: string;
   readershipVolume: number;
   corruptionFactor: number;
   clusterId?: number;
+  clusterLabel?: string;
+  tags: string[];
   isRetracted: boolean;
   hasActiveAppeal: boolean;
   createdAt?: string;
@@ -25,11 +39,20 @@ interface GraphNode {
 interface GraphEdge {
   source: string;
   target: string;
+  kind: "sequence" | "topic";
+}
+
+interface ClusterSummary {
+  id: number;
+  label: string;
+  size: number;
 }
 
 interface GraphResponse {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  clusters: ClusterSummary[];
+  truncated: boolean;
 }
 
 interface PulseOverlay {
@@ -41,11 +64,30 @@ interface PulseOverlay {
 
 const HIDDEN_COLOR = "#e7e5da"; // faded-out color for non-neighbors during hover, close to --paper
 
-export function LineageGraph({ journalistId }: { journalistId: string }) {
+/**
+ * The platform's epistemic graph (SRS 2.2). Renders either one journalist's
+ * lineage (`journalistId`) or the whole corpus (`scope="global"`).
+ *
+ * Layout is ForceAtlas2 over two edge types: SEQUENCE_OF lineage (FR-2) and
+ * co-tag topic edges derived from HAS_TAG. Node size encodes readership
+ * (FR-12), fill encodes either Corruption Factor (FR-10, the default) or
+ * Louvain community (F-07), and each community is named on the canvas by its
+ * dominant tag.
+ */
+export function LineageGraph({
+  journalistId,
+  scope = "journalist",
+}: {
+  journalistId?: string;
+  scope?: "journalist" | "global";
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [sigmaInstance, setSigmaInstance] = useState<Sigma | null>(null);
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ nodes: 0, edges: 0, truncated: false });
+
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -54,54 +96,90 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
   const [hiddenEras, setHiddenEras] = useState<Set<string>>(new Set());
   const [pulseOverlays, setPulseOverlays] = useState<PulseOverlay[]>([]);
 
-  useSemanticZoom(sigmaInstance, graph, hiddenClusters, hiddenEras);
+  // The two views answer different questions, so they open on different
+  // encodings. The platform-wide graph is a cartography — you're there to see
+  // the shape of the topic communities, so it opens coloured by cluster. A
+  // single journalist's profile is an accountability view, where FR-10's
+  // Corruption Factor is the point, so it opens on that. Either can be
+  // switched at any time.
+  const [colorMode, setColorMode] = useState<ColorMode>(scope === "global" ? "cluster" : "corruption");
+  const [semanticZoom, setSemanticZoom] = useState(true);
+  const [showTopicEdges, setShowTopicEdges] = useState(true);
+  const [clusterSummaries, setClusterSummaries] = useState<ClusterSummary[]>([]);
+
+  useSemanticZoom(sigmaInstance, graph, hiddenClusters, hiddenEras, semanticZoom);
+  const clusterLabels = useClusterLabels(sigmaInstance, graph, clusterColor);
+
+  const endpoint = scope === "global" ? "/graph" : `/journalists/${journalistId}/graph`;
 
   useEffect(() => {
     let sigma: Sigma | null = null;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
 
-    apiGet<GraphResponse>(`/journalists/${journalistId}/graph`)
+    apiGet<GraphResponse>(endpoint)
       .then((data) => {
-        if (!containerRef.current) return;
+        if (cancelled || !containerRef.current) return;
 
-        const g = new Graph();
+        const g = new Graph({ multi: false, type: "mixed" });
 
-        // Seed with a circular layout so ForceAtlas2 has a reasonable
-        // starting point to relax from, rather than all nodes at the origin.
+        // Seed with a circular layout so ForceAtlas2 relaxes from a sane
+        // starting point rather than from every node stacked at the origin,
+        // where the repulsion forces are degenerate.
         const angleStep = (2 * Math.PI) / Math.max(data.nodes.length, 1);
+        const radius = Math.max(10, Math.sqrt(data.nodes.length) * 3);
+
         data.nodes.forEach((node, i) => {
           g.addNode(node.id, {
             label: node.isRetracted ? "[retracted]" : node.title,
-            x: Math.cos(i * angleStep) * 10,
-            y: Math.sin(i * angleStep) * 10,
-            size: readershipToSize(node.readershipVolume), // FR-12 Dynamic Node Scaling
-            color: node.isRetracted ? "#a9a696" : corruptionToColor(node.corruptionFactor), // FR-10
+            x: Math.cos(i * angleStep) * radius,
+            y: Math.sin(i * angleStep) * radius,
+            size: readershipToSize(node.readershipVolume), // FR-12
+            color: nodeColor("corruption", node), // FR-10 is the default encoding
             readershipVolume: node.readershipVolume,
             corruptionFactor: node.corruptionFactor,
             clusterId: node.clusterId,
+            clusterLabel: node.clusterLabel,
+            tags: node.tags ?? [],
             title: node.title,
+            journalistId: node.journalistId,
+            journalistName: node.journalistName,
             isRetracted: node.isRetracted,
             hasActiveAppeal: node.hasActiveAppeal,
             createdAt: node.createdAt,
-            era: articleEra(node.createdAt), // F-08 Time-Based Clustering
+            era: articleEra(node.createdAt), // F-08
           });
         });
 
         data.edges.forEach((edge) => {
-          if (g.hasNode(edge.source) && g.hasNode(edge.target) && !g.hasEdge(edge.source, edge.target)) {
-            g.addEdge(edge.source, edge.target, { color: sigmaConfig.defaultEdgeColor });
-          }
+          if (!g.hasNode(edge.source) || !g.hasNode(edge.target)) return;
+          if (g.hasEdge(edge.source, edge.target)) return;
+          const isTopic = edge.kind === "topic";
+          g.addEdge(edge.source, edge.target, {
+            kind: edge.kind,
+            size: isTopic ? 0.4 : 1.1,
+            color: isTopic ? sigmaConfig.topicEdgeColor : sigmaConfig.defaultEdgeColor,
+          });
         });
 
-        // Force-directed layout (same family used by the Sigma.js "cartography
-        // of Wikipedia" reference): relaxes the circular seed into clusters
-        // that reflect actual connectivity, rather than an arbitrary ring.
+        // ForceAtlas2 with Barnes-Hut above a few hundred nodes: the exact
+        // O(n²) repulsion is fine for a single journalist's dozen articles but
+        // untenable for the global graph, and the approximation is visually
+        // indistinguishable at this scale.
         if (g.order > 1) {
           forceAtlas2.assign(g, {
-            iterations: 150,
+            iterations: g.order > 800 ? 90 : 220,
             settings: {
-              gravity: 1,
-              scalingRatio: 10,
-              barnesHutOptimize: g.order > 200,
+              ...forceAtlas2.inferSettings(g),
+              gravity: 0.9,
+              scalingRatio: 12,
+              slowDown: 3,
+              barnesHutOptimize: g.order > 300,
+              // Scale repulsion by degree so hub articles push their
+              // neighbourhood open instead of everything collapsing into one
+              // dense ball — this is what separates the communities visually.
+              outboundAttractionDistribution: true,
             },
           });
         }
@@ -109,56 +187,101 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
         sigma = new Sigma(g, containerRef.current, {
           minCameraRatio: sigmaConfig.minCameraRatio,
           maxCameraRatio: sigmaConfig.maxCameraRatio,
+          renderEdgeLabels: false,
+          // Labels stay off by default: at 2,000 nodes per-node labels are an
+          // unreadable smear. The on-canvas cluster labels carry orientation
+          // instead, and individual titles surface on hover.
+          renderLabels: g.order <= 120,
+          labelDensity: 0.6,
+          labelGridCellSize: 120,
+          defaultNodeColor: sigmaConfig.defaultNodeColor,
+          defaultEdgeColor: sigmaConfig.defaultEdgeColor,
         });
-
-        function selectNode(node: string) {
-          const attrs = g.getNodeAttributes(node);
-          setSelected({
-            id: node,
-            title: attrs.title,
-            readershipVolume: attrs.readershipVolume,
-            corruptionFactor: attrs.corruptionFactor,
-            clusterId: attrs.clusterId,
-            isRetracted: attrs.isRetracted,
-            hasActiveAppeal: attrs.hasActiveAppeal,
-            createdAt: attrs.createdAt,
-          });
-        }
 
         function updatePulseOverlays() {
           if (!sigma) return;
+          const { width, height } = sigma.getDimensions();
           const overlays: PulseOverlay[] = [];
           g.forEachNode((node, attrs) => {
             if (!attrs.hasActiveAppeal || attrs.hidden) return;
             const display = sigma!.getNodeDisplayData(node);
             if (!display) return;
-            overlays.push({ id: node, x: display.x, y: display.y, size: display.size });
+
+            // getNodeDisplayData returns coordinates in Sigma's *framed graph*
+            // space, not viewport pixels. Using them directly as CSS offsets
+            // (as this did before) parked every ring near the container's
+            // top-left corner regardless of where its node actually was.
+            // framedGraphToViewport is the conversion; scaleSize applies the
+            // camera's current zoom to the radius.
+            const vp = sigma!.framedGraphToViewport(display);
+            const radius = sigma!.scaleSize(display.size);
+
+            // The ring is an absolutely positioned DOM element, so unlike a
+            // canvas draw it isn't clipped by the graph box — a node panned
+            // off-screen would paint amber over the surrounding page chrome.
+            if (vp.x < -radius || vp.y < -radius || vp.x > width + radius || vp.y > height + radius) return;
+
+            overlays.push({ id: node, x: vp.x, y: vp.y, size: radius });
           });
           setPulseOverlays(overlays);
         }
 
-        sigma.on("clickNode", ({ node }) => selectNode(node));
+        sigma.on("clickNode", ({ node }) => setSelected(readNode(g, node)));
         sigma.on("enterNode", ({ node }) => setHoveredNode(node));
         sigma.on("leaveNode", () => setHoveredNode(null));
-        sigma.getCamera().on("updated", updatePulseOverlays);
         sigma.on("afterRender", updatePulseOverlays);
         updatePulseOverlays();
 
         setGraph(g);
         setSigmaInstance(sigma);
+        setClusterSummaries(data.clusters ?? []);
+        setStats({ nodes: g.order, edges: g.size, truncated: data.truncated });
+        setLoading(false);
       })
-      .catch(() => setError("Could not load this journalist's article graph."));
+      .catch(() => {
+        if (cancelled) return;
+        setError("Could not load the article graph.");
+        setLoading(false);
+      });
 
     return () => {
+      cancelled = true;
       sigma?.kill();
+      setSigmaInstance(null);
+      setGraph(null);
     };
-  }, [journalistId]);
+  }, [endpoint]);
 
-  // Hover-to-highlight-neighbors: fade every node/edge that isn't the
-  // hovered node or one of its direct neighbors. The same pattern the
-  // Sigma.js Wikipedia cartography demo uses so a dense graph stays
-  // readable — you explore local structure by hovering instead of parsing
-  // the whole tangle at once.
+  // Recolour in place when the encoding changes — cheaper and far less
+  // jarring than rebuilding the graph, which would re-run the layout and
+  // scramble every position the reader has oriented themselves against.
+  useEffect(() => {
+    if (!graph || !sigmaInstance) return;
+    graph.forEachNode((node, attrs) => {
+      graph.setNodeAttribute(
+        node,
+        "color",
+        nodeColor(colorMode, {
+          corruptionFactor: attrs.corruptionFactor as number,
+          clusterId: attrs.clusterId as number | undefined,
+          isRetracted: attrs.isRetracted as boolean,
+        }),
+      );
+    });
+    sigmaInstance.refresh();
+  }, [colorMode, graph, sigmaInstance]);
+
+  useEffect(() => {
+    if (!graph || !sigmaInstance) return;
+    graph.forEachEdge((edge, attrs) => {
+      if (attrs.kind === "topic") graph.setEdgeAttribute(edge, "hidden", !showTopicEdges);
+    });
+    sigmaInstance.refresh();
+  }, [showTopicEdges, graph, sigmaInstance]);
+
+  // Hover-to-highlight-neighbours: fade everything that isn't the hovered
+  // node or a direct neighbour, so local structure is legible inside a dense
+  // tangle without needing to zoom.
   useEffect(() => {
     if (!sigmaInstance || !graph) return;
 
@@ -173,12 +296,15 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
     neighbors.add(hoveredNode);
 
     sigmaInstance.setSetting("nodeReducer", (node, data) => {
-      if (neighbors.has(node)) return data;
+      if (node === hoveredNode) return { ...data, label: data.label, zIndex: 2, forceLabel: true };
+      if (neighbors.has(node)) return { ...data, zIndex: 1, forceLabel: true };
       return { ...data, color: HIDDEN_COLOR, label: "", zIndex: 0 };
     });
     sigmaInstance.setSetting("edgeReducer", (edge, data) => {
       const [source, target] = graph.extremities(edge);
-      if (source === hoveredNode || target === hoveredNode) return { ...data, color: "#35506b", zIndex: 1 };
+      if (source === hoveredNode || target === hoveredNode) {
+        return { ...data, color: "#35506b", size: 1.4, hidden: false, zIndex: 1 };
+      }
       return { ...data, color: HIDDEN_COLOR, hidden: true };
     });
     sigmaInstance.refresh();
@@ -189,12 +315,12 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
     [graph],
   );
 
-  // Cluster legend data: one entry per Louvain cluster present in this
-  // graph, with a stable categorical color (independent of each node's own
-  // corruption-factor fill) and a member count. Clicking an entry toggles
-  // that cluster's visibility — the defining interaction of the Sigma.js
-  // "cartography of Wikipedia" reference this graph is modeled on.
+  // Cluster legend: prefer the backend's summary (which names each community
+  // after its dominant tag) and fall back to counting locally.
   const clusters = useMemo(() => {
+    if (clusterSummaries.length > 0) {
+      return clusterSummaries.map((c) => ({ ...c, color: clusterColor(c.id) }));
+    }
     if (!graph) return [];
     const counts = new Map<number, number>();
     graph.forEachNode((_, attrs) => {
@@ -203,21 +329,10 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
       }
     });
     return Array.from(counts.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([id, count]) => ({ id, count, color: clusterColor(id) }));
-  }, [graph]);
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, size]) => ({ id, size, label: `Cluster ${id}`, color: clusterColor(id) }));
+  }, [clusterSummaries, graph]);
 
-  function toggleCluster(id: number) {
-    setHiddenClusters((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  // Time-period legend (F-08): one entry per era present in this graph, in
-  // fixed chronological order regardless of which eras happen to exist.
   const eras = useMemo(() => {
     if (!graph) return [];
     const counts = new Map<Era, number>();
@@ -228,14 +343,23 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
     return ERA_ORDER.filter((era) => counts.has(era)).map((era) => ({ era, count: counts.get(era) ?? 0 }));
   }, [graph]);
 
-  function toggleEra(era: string) {
+  const toggleCluster = useCallback((id: number) => {
+    setHiddenClusters((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleEra = useCallback((era: string) => {
     setHiddenEras((prev) => {
       const next = new Set(prev);
       if (next.has(era)) next.delete(era);
       else next.add(era);
       return next;
     });
-  }
+  }, []);
 
   function handleQueryChange(value: string) {
     setQuery(value);
@@ -244,35 +368,68 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
       return;
     }
     const lower = value.toLowerCase();
-    setSuggestions(allTitles.filter((n) => n.title.toLowerCase().includes(lower)).slice(0, 6));
+    setSuggestions(allTitles.filter((n) => n.title?.toLowerCase().includes(lower)).slice(0, 6));
   }
 
   function focusNode(nodeId: string) {
     if (!sigmaInstance || !graph) return;
     const attrs = graph.getNodeAttributes(nodeId);
-    sigmaInstance.getCamera().animate({ x: attrs.x, y: attrs.y, ratio: 0.3 }, { duration: 400 });
+    sigmaInstance.getCamera().animate({ x: attrs.x, y: attrs.y, ratio: 0.12 }, { duration: 500 });
     setHoveredNode(nodeId);
-    setSelected({
-      id: nodeId,
-      title: attrs.title,
-      readershipVolume: attrs.readershipVolume,
-      corruptionFactor: attrs.corruptionFactor,
-      clusterId: attrs.clusterId,
-      isRetracted: attrs.isRetracted,
-      hasActiveAppeal: attrs.hasActiveAppeal,
-      createdAt: attrs.createdAt,
-    });
+    setSelected(readNode(graph, nodeId));
     setSuggestions([]);
-    setQuery(attrs.title);
+    setQuery(attrs.title as string);
+  }
+
+  function resetView() {
+    sigmaInstance?.getCamera().animate({ x: 0.5, y: 0.5, ratio: 1 }, { duration: 400 });
+    setHoveredNode(null);
+    setSelected(null);
   }
 
   return (
     <section className="card" style={{ padding: "1.5rem" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "1rem", gap: "1rem" }}>
-        <h2 style={{ margin: 0 }}>Lineage graph</h2>
-        <span className="eyebrow" style={{ margin: 0, whiteSpace: "nowrap" }}>
-          {"neutral"} → <span style={{ color: "var(--pen-red)" }}>corrupted</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "1rem", marginBottom: "1rem" }}>
+        <h2 style={{ margin: 0 }}>{scope === "global" ? "Epistemic graph" : "Lineage graph"}</h2>
+        <span className="eyebrow" style={{ margin: 0 }}>
+          {stats.nodes.toLocaleString()} stories · {stats.edges.toLocaleString()} links
+          {stats.truncated && " · showing the most-read subset"}
         </span>
+      </div>
+
+      {/* Controls */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center", marginBottom: "0.75rem" }}>
+        <div style={{ display: "flex", gap: "0.25rem" }}>
+          {(["corruption", "cluster"] as ColorMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setColorMode(mode)}
+              className="stamp"
+              data-tone={colorMode === mode ? "pending" : "neutral"}
+              style={{ cursor: "pointer", fontWeight: colorMode === mode ? 700 : 400 }}
+              title={
+                mode === "corruption"
+                  ? "Colour by Corruption Factor (FR-10): neutral → red as proven false claims concentrate"
+                  : "Colour by Louvain community (F-07): which topic cluster each story belongs to"
+              }
+            >
+              {mode === "corruption" ? "Colour: corruption" : "Colour: cluster"}
+            </button>
+          ))}
+        </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
+          <input type="checkbox" checked={semanticZoom} onChange={(e) => setSemanticZoom(e.target.checked)} />
+          Semantic zoom
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
+          <input type="checkbox" checked={showTopicEdges} onChange={(e) => setShowTopicEdges(e.target.checked)} />
+          Topic links
+        </label>
+        <button type="button" className="stamp" data-tone="neutral" style={{ cursor: "pointer" }} onClick={resetView}>
+          Reset view
+        </button>
       </div>
 
       <div style={{ position: "relative", marginBottom: "0.75rem" }}>
@@ -289,7 +446,7 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
               top: "calc(100% + 4px)",
               left: 0,
               right: 0,
-              zIndex: 10,
+              zIndex: 20,
               background: "var(--paper-raised)",
               border: "1px solid var(--rule)",
               borderRadius: "var(--radius-sm)",
@@ -330,12 +487,47 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
           ref={containerRef}
           style={{
             width: "100%",
-            height: 480,
+            height: 620,
             border: "1px solid var(--rule)",
             borderRadius: "var(--radius)",
             background: "var(--paper)",
           }}
         />
+
+        {loading && (
+          <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", pointerEvents: "none" }}>
+            <span className="eyebrow">Laying out the graph…</span>
+          </div>
+        )}
+
+        {/* On-canvas community labels — the orientation cue that makes a dense
+            cluster-coloured graph readable. */}
+        {!hoveredNode &&
+          clusterLabels.map((c) => (
+            <span
+              key={c.id}
+              style={{
+                position: "absolute",
+                left: c.x,
+                top: c.y,
+                transform: "translate(-50%, -50%)",
+                pointerEvents: "none",
+                fontFamily: "var(--font-display)",
+                fontSize: `${Math.min(15, 10 + Math.log10(1 + c.size) * 3)}px`,
+                fontWeight: 700,
+                color: "#1c1c1a",
+                background: "rgba(247,246,240,0.82)",
+                border: `1px solid ${c.color}`,
+                borderRadius: 3,
+                padding: "1px 6px",
+                whiteSpace: "nowrap",
+                zIndex: 5,
+              }}
+            >
+              {c.label}
+            </span>
+          ))}
+
         {/* FR-9/F-15: pulsing amber ring over any node under an active appeal. */}
         {pulseOverlays.map((p) => (
           <div
@@ -351,9 +543,18 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
         ))}
       </div>
 
+      <p className="eyebrow" style={{ marginTop: "0.75rem", marginBottom: 0 }}>
+        Size ∝ readership · {colorMode === "corruption" ? (
+          <>colour: neutral → <span style={{ color: "var(--pen-red)" }}>corrupted</span></>
+        ) : (
+          <>colour: topic community</>
+        )}{" "}
+        · scroll to zoom, hover to isolate a story&apos;s neighbourhood
+      </p>
+
       {clusters.length > 1 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "1rem" }}>
-          {clusters.map((c) => (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.75rem" }}>
+          {clusters.slice(0, 16).map((c) => (
             <button
               key={c.id}
               type="button"
@@ -362,7 +563,7 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
               data-tone="neutral"
               style={{
                 cursor: "pointer",
-                opacity: hiddenClusters.has(c.id) ? 0.4 : 1,
+                opacity: hiddenClusters.has(c.id) ? 0.35 : 1,
                 borderColor: c.color,
                 color: c.color,
               }}
@@ -370,16 +571,16 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
             >
               <span
                 aria-hidden="true"
-                style={{ width: 8, height: 8, borderRadius: "50%", background: c.color, display: "inline-block" }}
+                style={{ width: 8, height: 8, borderRadius: "50%", background: c.color, display: "inline-block", marginRight: 4 }}
               />
-              Cluster {c.id} ({c.count})
+              {c.label} ({c.size})
             </button>
           ))}
         </div>
       )}
 
       {eras.length > 1 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.5rem" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.5rem" }}>
           {eras.map(({ era, count }) => (
             <button
               key={era}
@@ -387,7 +588,7 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
               onClick={() => toggleEra(era)}
               className="stamp"
               data-tone="neutral"
-              style={{ cursor: "pointer", opacity: hiddenEras.has(era) ? 0.4 : 1 }}
+              style={{ cursor: "pointer", opacity: hiddenEras.has(era) ? 0.35 : 1 }}
               title={hiddenEras.has(era) ? "Click to show" : "Click to hide"}
             >
               {era} ({count})
@@ -401,11 +602,15 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
           <strong style={{ fontFamily: "var(--font-display)" }}>
             {selected.isRetracted ? "[retracted]" : selected.title}
           </strong>
-          {selected.hasActiveAppeal && <span className="stamp" data-tone="pending" style={{ marginLeft: "0.5rem" }}>Under dispute</span>}
+          {selected.hasActiveAppeal && (
+            <span className="stamp" data-tone="pending" style={{ marginLeft: "0.5rem" }}>Under dispute</span>
+          )}
           <br />
-          Reads: {selected.readershipVolume} · Corruption factor:{" "}
+          {selected.journalistName && <>By {selected.journalistName} · </>}
+          Reads: {selected.readershipVolume.toLocaleString()} · Corruption factor:{" "}
           {selected.corruptionFactor.toFixed(2)}
-          {selected.clusterId !== undefined && <> · Cluster #{selected.clusterId}</>}
+          {selected.clusterLabel && <> · {selected.clusterLabel}</>}
+          {selected.tags?.length > 0 && <> · tags: {selected.tags.join(", ")}</>}
           {!selected.isRetracted && (
             <>
               {" · "}
@@ -416,4 +621,22 @@ export function LineageGraph({ journalistId }: { journalistId: string }) {
       )}
     </section>
   );
+}
+
+function readNode(graph: Graph, node: string): GraphNode {
+  const attrs = graph.getNodeAttributes(node);
+  return {
+    id: node,
+    title: attrs.title as string,
+    journalistId: attrs.journalistId as string | undefined,
+    journalistName: attrs.journalistName as string | undefined,
+    readershipVolume: (attrs.readershipVolume as number) ?? 0,
+    corruptionFactor: (attrs.corruptionFactor as number) ?? 0,
+    clusterId: attrs.clusterId as number | undefined,
+    clusterLabel: attrs.clusterLabel as string | undefined,
+    tags: (attrs.tags as string[]) ?? [],
+    isRetracted: attrs.isRetracted as boolean,
+    hasActiveAppeal: attrs.hasActiveAppeal as boolean,
+    createdAt: attrs.createdAt as string | undefined,
+  };
 }

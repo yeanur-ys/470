@@ -10,12 +10,16 @@ import (
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/config"
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/db"
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/kafka"
+	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/leaderboard"
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/redisstore"
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/server"
 )
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("refusing to start: %v", err)
+	}
 
 	pool, err := db.NewPostgresPool(cfg.DatabaseURL)
 	if err != nil {
@@ -29,15 +33,33 @@ func main() {
 	}
 	defer neo4jDriver.Close(context.Background())
 
+	// Uniqueness constraints must exist before the CDC consumers start
+	// MERGE-ing nodes, or concurrent merges can duplicate them.
+	if err := db.EnsureNeo4jConstraints(context.Background(), neo4jDriver); err != nil {
+		log.Fatalf("neo4j schema setup failed: %v", err)
+	}
+
 	redisClient, err := redisstore.NewClient(cfg.RedisURL)
 	if err != nil {
 		log.Fatalf("redis connection failed: %v", err)
 	}
 	defer redisClient.Close()
 
+	// Redis is a derived cache of the leaderboard, not its source of truth, so
+	// it's reconstructed from Postgres at boot. Without this a restarted Redis
+	// or a SQL-seeded database serves an empty leaderboard indefinitely.
+	if n, err := leaderboard.Rebuild(context.Background(), pool, redisClient); err != nil {
+		log.Printf("leaderboard warm-up failed (continuing, it will fill in as claims resolve): %v", err)
+	} else if n > 0 {
+		log.Printf("leaderboard warmed with %d journalists", n)
+	}
+
 	// CDC-sync: Debezium -> Kafka -> Neo4j (Section 5.2, "Data Synchronization Layer").
+	// Articles carry the nodes and lineage edges; claims carry the HAS_TAG
+	// relationships that give the graph its community structure.
 	brokers := strings.Split(cfg.KafkaBrokers, ",")
 	go kafka.RunArticleSync(context.Background(), brokers, neo4jDriver)
+	go kafka.RunClaimSync(context.Background(), brokers, neo4jDriver)
 
 	tokens := auth.NewTokenService(cfg.JWTSecret)
 	handler := server.NewRouter(server.Deps{

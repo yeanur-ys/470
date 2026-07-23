@@ -1,4 +1,4 @@
-import { LineageGraph } from "@/components/LineageGraph";
+import { GraphCanvas } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/PageHeader";
 
 interface ProfilePageProps {
@@ -18,7 +18,7 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
       <p className="eyebrow" style={{ marginBottom: "1.5rem" }}>
         journalist id: <span className="mono">{journalistId}</span>
       </p>
-      <LineageGraph journalistId={journalistId} />
+      <GraphCanvas journalistId={journalistId} />
     </main>
   );
 }

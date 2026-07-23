@@ -31,6 +31,13 @@ type createClaimRequest struct {
 // Create implements FR-3: journalists encapsulate specific statements in
 // #Claim tags at publish time (or afterwards) so auditors can vote on them.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	requester, ok := auth.FromContext(r.Context())
+	if !ok || requester == nil {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
 	articleID := r.PathValue("articleId")
 
 	var req createClaimRequest
@@ -39,8 +46,32 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := context.Background()
+
+	// Ownership check. The route is journalist-only, but "is a journalist" is
+	// not "is THIS article's journalist" — without this, any signed-in
+	// journalist could attach claims to a rival's article and drive their
+	// Corruption Factor (FR-10) and Rank Score (FR-16) down by having those
+	// claims voted false.
+	var ownerID string
+	var isRetracted bool
+	if err := h.DB.QueryRow(ctx,
+		`SELECT journalist_id, is_retracted FROM articles WHERE id = $1`, articleID,
+	).Scan(&ownerID, &isRetracted); err != nil {
+		http.Error(w, "article not found", http.StatusNotFound)
+		return
+	}
+	if ownerID != requester.UserID {
+		http.Error(w, "you can only tag claims on your own articles", http.StatusForbidden)
+		return
+	}
+	if isRetracted {
+		http.Error(w, "this article has been retracted", http.StatusConflict)
+		return
+	}
+
 	var id string
-	err := h.DB.QueryRow(context.Background(), `
+	err := h.DB.QueryRow(ctx, `
 		INSERT INTO claims (article_id, text, tag) VALUES ($1, $2, $3) RETURNING id
 	`, articleID, req.Text, req.Tag).Scan(&id)
 	if err != nil {
