@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { getRole, type Role } from "@/lib/auth";
+import { getRole, getToken, type Role } from "@/lib/auth";
 
 interface RoleGateProps {
   role: Role;
@@ -15,7 +15,12 @@ export function RoleGate({ role, children }: RoleGateProps) {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    if (getRole() !== role) {
+    // Checking role alone let a page render fully "logged in" against a
+    // stale or missing token — sessionStorage still said e.g. "journalist"
+    // after the token expired or was cleared, so the gate passed and every
+    // data fetch behind it failed one by one instead. Requiring a token here
+    // too means an expired session bounces to /login immediately.
+    if (getRole() !== role || !getToken()) {
       router.replace("/login");
       return;
     }

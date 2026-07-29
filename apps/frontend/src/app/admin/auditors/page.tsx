@@ -1,50 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-import { apiGet, apiPostVoid } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
 import { MarginLog } from "@/components/MarginLog";
 import { Button } from "@/components/ui/Button";
-
-interface PendingAuditor {
-  id: string;
-  email: string;
-  displayName: string;
-  credentialUrl: string;
-  tags: string[];
-}
+import { useAdminAuditors } from "@/hooks/useAdminAuditors";
 
 export default function AdminAuditorsPage() {
-  const [auditors, setAuditors] = useState<PendingAuditor[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  function load() {
-    apiGet<PendingAuditor[]>("/admin/auditors/pending")
-      .then(setAuditors)
-      .catch(() => setError("Could not load pending auditors."));
-  }
-
-  useEffect(load, []);
-
-  async function handleVerify(id: string) {
-    setBusyId(id);
-    try {
-      await apiPostVoid(`/admin/auditors/${id}/verify`, {});
-      setAuditors((prev) => prev?.filter((a) => a.id !== id) ?? null);
-    } catch {
-      setError("Could not verify that auditor.");
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  const notes = [
-    auditors && auditors.length > 0
-      ? { text: `${auditors.length} auditor${auditors.length === 1 ? "" : "s"} can't vote until reviewed.`, tone: "pending" as const }
-      : { text: "No auditors waiting on review.", tone: "ok" as const },
-  ];
+  const { auditors, error, busyId, handleVerify, notes } = useAdminAuditors();
 
   return (
     <>

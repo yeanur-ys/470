@@ -10,7 +10,7 @@ import (
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/config"
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/db"
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/kafka"
-	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/leaderboard"
+	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/models"
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/redisstore"
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/server"
 )
@@ -48,7 +48,7 @@ func main() {
 	// Redis is a derived cache of the leaderboard, not its source of truth, so
 	// it's reconstructed from Postgres at boot. Without this a restarted Redis
 	// or a SQL-seeded database serves an empty leaderboard indefinitely.
-	if n, err := leaderboard.Rebuild(context.Background(), pool, redisClient); err != nil {
+	if n, err := models.RebuildLeaderboard(context.Background(), pool, redisClient); err != nil {
 		log.Printf("leaderboard warm-up failed (continuing, it will fill in as claims resolve): %v", err)
 	} else if n > 0 {
 		log.Printf("leaderboard warmed with %d journalists", n)

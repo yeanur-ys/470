@@ -7,14 +7,8 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/articles"
-	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/auditors"
 	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/auth"
-	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/claims"
-	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/compliance"
-	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/consensus"
-	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/graph"
-	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/leaderboard"
+	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/controllers"
 )
 
 type Deps struct {
@@ -28,44 +22,44 @@ type Deps struct {
 func NewRouter(deps Deps) http.Handler {
 	mux := http.NewServeMux()
 
-	authHandler := auth.NewHandler(deps.DB, deps.Tokens)
-	articlesHandler := articles.NewHandler(deps.DB, deps.Redis)
-	claimsHandler := claims.NewHandler(deps.DB, deps.Redis)
-	consensusHandler := consensus.NewHandler(deps.DB, deps.Redis)
-	complianceHandler := compliance.NewHandler(deps.DB)
-	leaderboardHandler := leaderboard.NewHandler(deps.Redis, deps.DB)
-	graphHandler := graph.NewHandler(deps.Neo4j, deps.DB)
-	auditorsHandler := auditors.NewHandler(deps.DB)
+	authController := controllers.NewAuthController(deps.DB, deps.Tokens, deps.Redis)
+	articlesController := controllers.NewArticlesController(deps.DB, deps.Redis)
+	claimsController := controllers.NewClaimsController(deps.DB, deps.Redis)
+	consensusController := controllers.NewConsensusController(deps.DB, deps.Redis)
+	complianceController := controllers.NewComplianceController(deps.DB)
+	leaderboardController := controllers.NewLeaderboardController(deps.Redis, deps.DB)
+	graphController := controllers.NewGraphController(deps.Neo4j, deps.DB)
+	auditorsController := controllers.NewAuditorsController(deps.DB)
 
 	// --- Public routes ---
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("POST /auth/login", authHandler.Login)
-	mux.HandleFunc("POST /auth/signup", authHandler.Signup)
-	mux.HandleFunc("GET /articles", articlesHandler.List) // readers: public lineage browsing
-	mux.HandleFunc("GET /articles/{articleId}", articlesHandler.Get)
-	mux.HandleFunc("POST /articles/{articleId}/read", articlesHandler.RecordRead)
-	mux.HandleFunc("GET /journalists/{journalistId}/graph", graphHandler.JournalistGraph)
-	mux.HandleFunc("GET /graph", graphHandler.GlobalGraph) // platform-wide epistemic graph (NFR-11)
-	mux.HandleFunc("GET /leaderboard", leaderboardHandler.Top)
+	mux.HandleFunc("POST /auth/login", authController.Login)
+	mux.HandleFunc("POST /auth/signup", authController.Signup)
+	mux.HandleFunc("GET /articles", articlesController.List) // readers: public lineage browsing
+	mux.HandleFunc("GET /articles/{articleId}", articlesController.Get)
+	mux.HandleFunc("POST /articles/{articleId}/read", articlesController.RecordRead)
+	mux.HandleFunc("GET /journalists/{journalistId}/graph", graphController.JournalistGraph)
+	mux.HandleFunc("GET /graph", graphController.GlobalGraph) // platform-wide epistemic graph (NFR-11)
+	mux.HandleFunc("GET /leaderboard", leaderboardController.Top)
 
 	// --- Journalist routes (FR-3, FR-4, FR-5) ---
-	mux.Handle("POST /articles", RequireRole("journalist")(http.HandlerFunc(articlesHandler.Create)))
-	mux.Handle("GET /articles/mine", RequireRole("journalist")(http.HandlerFunc(articlesHandler.Mine)))
-	mux.Handle("POST /articles/{articleId}/claims", RequireRole("journalist")(http.HandlerFunc(claimsHandler.Create)))
-	mux.Handle("POST /claims/{claimId}/self-correct", RequireRole("journalist")(http.HandlerFunc(claimsHandler.SelfCorrect)))
-	mux.Handle("POST /appeals", RequireRole("journalist")(http.HandlerFunc(articlesHandler.CreateAppeal)))
+	mux.Handle("POST /articles", RequireRole("journalist")(http.HandlerFunc(articlesController.Create)))
+	mux.Handle("GET /articles/mine", RequireRole("journalist")(http.HandlerFunc(articlesController.Mine)))
+	mux.Handle("POST /articles/{articleId}/claims", RequireRole("journalist")(http.HandlerFunc(claimsController.Create)))
+	mux.Handle("POST /claims/{claimId}/self-correct", RequireRole("journalist")(http.HandlerFunc(claimsController.SelfCorrect)))
+	mux.Handle("POST /appeals", RequireRole("journalist")(http.HandlerFunc(articlesController.CreateAppeal)))
 
 	// --- Auditor routes (FR-6, FR-7, FR-8; NFR-6 gates voting behind credential_verified) ---
-	mux.Handle("GET /claims/pending", RequireRole("auditor")(http.HandlerFunc(claimsHandler.Pending)))
-	mux.Handle("POST /claims/{claimId}/votes", RequireRole("auditor")(http.HandlerFunc(consensusHandler.Vote)))
+	mux.Handle("GET /claims/pending", RequireRole("auditor")(http.HandlerFunc(claimsController.Pending)))
+	mux.Handle("POST /claims/{claimId}/votes", RequireRole("auditor")(http.HandlerFunc(consensusController.Vote)))
 
 	// --- Admin routes (FR-13, FR-14, FR-15, NFR-6) ---
-	mux.Handle("POST /admin/articles/{articleId}/retract", RequireRole("admin")(http.HandlerFunc(complianceHandler.Retract)))
-	mux.Handle("GET /admin/auditors/pending", RequireRole("admin")(http.HandlerFunc(auditorsHandler.Pending)))
-	mux.Handle("POST /admin/auditors/{auditorId}/verify", RequireRole("admin")(http.HandlerFunc(auditorsHandler.Verify)))
+	mux.Handle("POST /admin/articles/{articleId}/retract", RequireRole("admin")(http.HandlerFunc(complianceController.Retract)))
+	mux.Handle("GET /admin/auditors/pending", RequireRole("admin")(http.HandlerFunc(auditorsController.Pending)))
+	mux.Handle("POST /admin/auditors/{auditorId}/verify", RequireRole("admin")(http.HandlerFunc(auditorsController.Verify)))
 
 	// CORS must wrap everything, outermost: a browser's preflight OPTIONS
 	// request needs an answer before Authenticate or the mux ever see it.

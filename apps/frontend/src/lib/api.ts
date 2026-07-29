@@ -1,4 +1,4 @@
-import { getToken } from "./auth";
+import { clearSession, getToken } from "./auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -42,6 +42,19 @@ async function handle<T>(request: Promise<Response>, parseJson: boolean): Promis
     throw new ApiError(
       "Could not reach the server. It may be down, or this origin isn't allowed to call it (CORS).",
     );
+  }
+
+  if (response.status === 401 && getToken()) {
+    // The session token we sent was rejected — expired (24h) or otherwise
+    // invalid. Previously nothing noticed this centrally: sessionStorage kept
+    // saying "logged in", every page's own fetch failed independently, and
+    // each one showed its own generic "could not load" message with no path
+    // back to /login. Clearing here means the next render is a clean
+    // logged-out state instead of a dashboard stuck on stale data.
+    clearSession();
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login?expired=1";
+    }
   }
 
   if (!response.ok) {

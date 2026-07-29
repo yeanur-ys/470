@@ -1,52 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/PageHeader";
 import { MarginLog } from "@/components/MarginLog";
-import { apiGet, apiPostVoid } from "@/lib/api";
-
-interface Article {
-  id: string;
-  title: string;
-  isRetracted: boolean;
-  falseClaims: number;
-}
+import { useAppeals } from "@/hooks/useAppeals";
 
 export default function AppealsPage() {
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [articleId, setArticleId] = useState("");
-  const [stakedPercent, setStakedPercent] = useState("10");
-  const [status, setStatus] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    apiGet<Article[]>("/articles/mine").then(setArticles).catch(() => {});
-  }, []);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setStatus(null);
-    setSubmitting(true);
-    try {
-      await apiPostVoid("/appeals", { articleId, stakedPercent: Number(stakedPercent) });
-      setStatus("Appeal filed. The disputed node will show as pending review.");
-    } catch {
-      setStatus("Could not file the appeal.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const disputable = articles.filter((a) => !a.isRetracted && a.falseClaims > 0);
-  const notes = [
-    disputable.length > 0
-      ? { text: `${disputable.length} stor${disputable.length === 1 ? "y is" : "ies are"} eligible for appeal right now.`, tone: "pending" as const }
-      : { text: "No stories currently carry a false-claim verdict.", tone: "ok" as const },
-    { text: "Staking is irreversible — it's deducted whether the appeal succeeds or not.", tone: "neutral" as const },
-  ];
+  const { articles, articleId, setArticleId, stakedPercent, setStakedPercent, status, submitting, handleSubmit, notes } =
+    useAppeals();
 
   return (
     <>

@@ -1,30 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { apiGet } from "@/lib/api";
 import { PublicHeader } from "@/components/PublicHeader";
 import { PageHeader } from "@/components/PageHeader";
+import { useLeaderboard } from "@/hooks/useLeaderboard";
 
-interface LeaderboardEntry {
-  journalistId: string;
-  displayName: string;
-  rankScore: number;
-}
-
-// F-19: Instant Global Leaderboards. The backend reads this straight from a
-// Redis sorted set (NFR-3: near-instant regardless of historical node count)
-// — this page just renders whatever it returns.
 export default function LeaderboardPage() {
-  const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    apiGet<LeaderboardEntry[]>("/leaderboard")
-      .then(setEntries)
-      .catch(() => setError("Could not load the leaderboard."));
-  }, []);
+  const { entries, error } = useLeaderboard();
 
   return (
     <>

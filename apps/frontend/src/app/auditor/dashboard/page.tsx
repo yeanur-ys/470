@@ -1,42 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { apiGet } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
 import { MarginLog } from "@/components/MarginLog";
-
-interface PendingClaim {
-  id: string;
-  articleId: string;
-  articleTitle: string;
-  text: string;
-  tag: string;
-}
+import { useAuditorDashboard } from "@/hooks/useAuditorDashboard";
 
 export default function AuditorDashboardPage() {
-  const [claims, setClaims] = useState<PendingClaim[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    apiGet<PendingClaim[]>("/claims/pending")
-      .then(setClaims)
-      .catch(() => setError("Could not load pending claims."));
-  }, []);
-
-  const tagCounts = new Map<string, number>();
-  claims?.forEach((c) => tagCounts.set(c.tag, (tagCounts.get(c.tag) ?? 0) + 1));
-
-  const notes = [
-    ...(claims && claims.length > 0
-      ? [{ text: `${claims.length} claim${claims.length === 1 ? "" : "s"} waiting on a second, non-overlapping tag.`, tone: "pending" as const }]
-      : []),
-    ...Array.from(tagCounts.entries()).map(([tag, count]) => ({
-      text: `${count} claim${count === 1 ? "" : "s"} tagged "${tag}".`,
-      tone: "neutral" as const,
-    })),
-  ];
+  const { claims, error, notes } = useAuditorDashboard();
 
   return (
     <>

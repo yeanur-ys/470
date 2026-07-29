@@ -1,59 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { apiGet, apiPostVoid } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
 import { MarginLog } from "@/components/MarginLog";
 import { Stamp } from "@/components/Stamp";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-
-interface Article {
-  id: string;
-  title: string;
-  readershipVolume: number;
-  verifiedClaims: number;
-  selfCorrectedClaims: number;
-  falseClaims: number;
-  isRetracted: boolean;
-  createdAt: string;
-}
+import { useJournalistDashboard } from "@/hooks/useJournalistDashboard";
 
 export default function JournalistDashboardPage() {
-  const [articles, setArticles] = useState<Article[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const [claimId, setClaimId] = useState("");
-  const [selfCorrectStatus, setSelfCorrectStatus] = useState<string | null>(null);
-  const [selfCorrectTone, setSelfCorrectTone] = useState<"ok" | "alert">("ok");
-  const [submittingSelfCorrect, setSubmittingSelfCorrect] = useState(false);
-
-  useEffect(() => {
-    apiGet<Article[]>("/articles/mine")
-      .then(setArticles)
-      .catch(() => setError("Could not load your articles."));
-  }, []);
-
-  async function handleSelfCorrect(e: React.FormEvent) {
-    e.preventDefault();
-    setSelfCorrectStatus(null);
-    setSubmittingSelfCorrect(true);
-    try {
-      await apiPostVoid(`/claims/${claimId}/self-correct`, {});
-      setSelfCorrectTone("ok");
-      setSelfCorrectStatus("Marked self-corrected — this counts toward your rank score.");
-      setClaimId("");
-    } catch {
-      setSelfCorrectTone("alert");
-      setSelfCorrectStatus("Couldn't self-correct that claim — it may not be yours, or already resolved.");
-    } finally {
-      setSubmittingSelfCorrect(false);
-    }
-  }
-
-  const notes = buildNotes(articles);
+  const {
+    articles,
+    error,
+    notes,
+    claimId,
+    setClaimId,
+    selfCorrectStatus,
+    selfCorrectTone,
+    submittingSelfCorrect,
+    handleSelfCorrect,
+  } = useJournalistDashboard();
 
   return (
     <>
@@ -147,39 +114,4 @@ export default function JournalistDashboardPage() {
       </div>
     </>
   );
-}
-
-function buildNotes(articles: Article[] | null): { text: string; tone?: "ok" | "alert" | "pending" | "neutral" }[] {
-  if (!articles) return [];
-  const notes: { text: string; tone?: "ok" | "alert" | "pending" | "neutral" }[] = [];
-
-  const retracted = articles.filter((a) => a.isRetracted);
-  if (retracted.length > 0) {
-    notes.push({
-      text: `${retracted.length} stor${retracted.length === 1 ? "y" : "ies"} tombstoned by compliance.`,
-      tone: "alert",
-    });
-  }
-
-  const disputed = articles.filter((a) => !a.isRetracted && a.falseClaims > 0);
-  if (disputed.length > 0) {
-    notes.push({
-      text: `${disputed.length} stor${disputed.length === 1 ? "y carries" : "ies carry"} at least one false claim — consider an appeal.`,
-      tone: "pending",
-    });
-  }
-
-  const untagged = articles.filter((a) => a.verifiedClaims + a.selfCorrectedClaims + a.falseClaims === 0);
-  if (untagged.length > 0) {
-    notes.push({
-      text: `${untagged.length} stor${untagged.length === 1 ? "y has" : "ies have"} no tagged claims yet — nothing for an auditor to verify.`,
-      tone: "neutral",
-    });
-  }
-
-  if (notes.length === 0 && articles.length > 0) {
-    notes.push({ text: "Clean ledger. Every story stands unchallenged.", tone: "ok" });
-  }
-
-  return notes;
 }

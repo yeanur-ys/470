@@ -1,31 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { apiGet } from "@/lib/api";
 import { PublicHeader } from "@/components/PublicHeader";
 import { PageHeader } from "@/components/PageHeader";
 import { Stamp } from "@/components/Stamp";
-
-interface Article {
-  id: string;
-  title: string;
-  readershipVolume: number;
-  falseClaims: number;
-  isRetracted: boolean;
-  createdAt: string;
-}
+import { useReadList } from "@/hooks/useReadList";
 
 export default function ReadPage() {
-  const [articles, setArticles] = useState<Article[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    apiGet<Article[]>("/articles")
-      .then(setArticles)
-      .catch(() => setError("Could not load stories."));
-  }, []);
+  const { articles, error } = useReadList();
 
   return (
     <>

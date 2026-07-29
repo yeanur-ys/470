@@ -1,38 +1,13 @@
 "use client";
 
-import { useState } from "react";
-
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/PageHeader";
 import { MarginLog } from "@/components/MarginLog";
-import { apiPost } from "@/lib/api";
-
-interface RetractResponse {
-  status: string;
-  tombstoneHash: string;
-}
+import { useAdminCompliance } from "@/hooks/useAdminCompliance";
 
 export default function CompliancePage() {
-  const [articleId, setArticleId] = useState("");
-  const [result, setResult] = useState<RetractResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setResult(null);
-    setSubmitting(true);
-    try {
-      const res = await apiPost<RetractResponse>(`/admin/articles/${articleId}/retract`, {});
-      setResult(res);
-    } catch {
-      setError("Retraction failed. Confirm the article ID is correct.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
+  const { articleId, setArticleId, result, error, submitting, handleSubmit } = useAdminCompliance();
 
   return (
     <>

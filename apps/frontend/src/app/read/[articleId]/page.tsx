@@ -1,30 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
-import { apiGet, apiPostVoid } from "@/lib/api";
 import { PublicHeader } from "@/components/PublicHeader";
 import { Stamp } from "@/components/Stamp";
-
-interface ArticleClaim {
-  id: string;
-  text: string;
-  tag: string;
-  status: "pending" | "verified" | "self_corrected" | "false";
-}
-
-interface ArticleDetail {
-  id: string;
-  journalistId: string;
-  title: string;
-  body: string;
-  readershipVolume: number;
-  isRetracted: boolean;
-  createdAt: string;
-  claims: ArticleClaim[];
-}
+import { useReadArticle } from "@/hooks/useReadArticle";
+import type { ArticleClaim } from "@/types/domain";
 
 const CLAIM_STAMP: Record<ArticleClaim["status"], { tone: "ok" | "alert" | "pending" | "neutral"; label: string }> = {
   pending: { tone: "neutral", label: "Awaiting auditors" },
@@ -35,20 +17,7 @@ const CLAIM_STAMP: Record<ArticleClaim["status"], { tone: "ok" | "alert" | "pend
 
 export default function ReadArticlePage() {
   const params = useParams<{ articleId: string }>();
-  const [article, setArticle] = useState<ArticleDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    apiGet<ArticleDetail>(`/articles/${params.articleId}`)
-      .then((data) => {
-        setArticle(data);
-        // Fire-and-forget: counts toward readership volume (FR-12) and the
-        // journalist's rank score input, but a failed increment shouldn't
-        // block the reader from seeing the story.
-        apiPostVoid(`/articles/${params.articleId}/read`, {}).catch(() => {});
-      })
-      .catch(() => setError("Could not load this story."));
-  }, [params.articleId]);
+  const { article, error } = useReadArticle(params.articleId);
 
   return (
     <>

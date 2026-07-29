@@ -9,7 +9,7 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	kafkago "github.com/segmentio/kafka-go"
 
-	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/ranking"
+	"github.com/yeanur-ys/nextGENjournalism/apps/go-backend/internal/models"
 )
 
 // debeziumEnvelope mirrors the subset of Debezium's Postgres connector payload
@@ -68,7 +68,7 @@ func RunArticleSync(ctx context.Context, brokers []string, driver neo4j.DriverWi
 			return // delete event; retractions are tombstone updates, not deletes
 		}
 
-		corruptionFactor := ranking.CorruptionFactor(
+		corruptionFactor := models.CorruptionFactor(
 			float64(after.VerifiedClaims), float64(after.SelfCorrectedClaims), float64(after.FalseClaims),
 		)
 
