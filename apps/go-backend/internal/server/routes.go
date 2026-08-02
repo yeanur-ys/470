@@ -53,6 +53,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("POST /appeals", RequireRole("journalist")(http.HandlerFunc(articlesController.CreateAppeal)))
 
 	// --- Auditor routes (FR-6, FR-7, FR-8; NFR-6 gates voting behind credential_verified) ---
+	mux.Handle("GET /auditor/me", RequireRole("auditor")(http.HandlerFunc(auditorsController.Me)))
 	mux.Handle("GET /claims/pending", RequireRole("auditor")(http.HandlerFunc(claimsController.Pending)))
 	mux.Handle("POST /claims/{claimId}/votes", RequireRole("auditor")(http.HandlerFunc(consensusController.Vote)))
 

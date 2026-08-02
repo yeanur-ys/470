@@ -3,13 +3,19 @@
 import { useEffect, useState } from "react";
 
 import { getPendingClaims } from "@/lib/models/claims";
-import type { PendingClaim } from "@/types/domain";
+import { getAuditorStats } from "@/lib/models/auditors";
+import type { AuditorStats, PendingClaim } from "@/types/domain";
 
 export function useAuditorDashboard() {
   const [claims, setClaims] = useState<PendingClaim[] | null>(null);
+  const [stats, setStats] = useState<AuditorStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // The two loads are independent: a brand-new (unverified) auditor still
+    // has a profile to show even though there's nothing they can act on yet,
+    // and the docket should render even if the profile call hiccups.
+    getAuditorStats().then(setStats).catch(() => setStats(null));
     getPendingClaims()
       .then(setClaims)
       .catch(() => setError("Could not load pending claims."));
@@ -28,5 +34,5 @@ export function useAuditorDashboard() {
     })),
   ];
 
-  return { claims, error, notes };
+  return { claims, stats, error, notes };
 }

@@ -67,6 +67,23 @@ export interface PendingAuditor {
   tags: string[];
 }
 
+// The requesting auditor's own standing (their personal dashboard), distinct
+// from PendingAuditor (an admin's view of others). Mirrors models.AuditorStats.
+export interface AuditorStats {
+  id: string;
+  displayName: string;
+  credentialVerified: boolean;
+  credentialUrl: string;
+  tags: string[];
+  rankScore: number;
+  trustWeight: number;
+  successfulVotes: number;
+  failedVotes: number;
+  votesCast: number;
+  lockedStake: number;
+  availableStake: number;
+}
+
 export interface LeaderboardEntry {
   journalistId: string;
   displayName: string;
