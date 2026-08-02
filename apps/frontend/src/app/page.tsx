@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { HomeActions } from "@/components/HomeActions";
+
 export default function HomePage() {
   return (
     <main
@@ -28,10 +30,7 @@ export default function HomePage() {
           No account needed — reading is open to everyone.
         </p>
 
-        <p style={{ marginTop: "2.25rem", borderTop: "1px solid var(--rule)", paddingTop: "1.5rem", fontSize: "0.85rem" }}>
-          Writing or auditing instead?{" "}
-          <Link href="/login">Sign in</Link> · <Link href="/signup">Open a desk</Link>
-        </p>
+        <HomeActions />
       </div>
     </main>
   );

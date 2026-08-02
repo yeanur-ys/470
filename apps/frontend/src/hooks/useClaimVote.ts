@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { ApiError } from "@/lib/api";
 import { castVote } from "@/lib/models/votes";
 
 export function useClaimVote(claimId: string) {
@@ -24,12 +25,22 @@ export function useClaimVote(claimId: string) {
         setStatus(`Consensus reached: claim marked ${res.verdict ? "verified" : "false"}.`);
       } else {
         setTone("neutral");
-        setStatus("Vote recorded — waiting on a cross-tag auditor to confirm.");
+        setStatus("Vote recorded. It counts once an auditor with a non-overlapping tag also votes — you'll see it resolve then.");
       }
-      setTimeout(() => router.push("/auditor/dashboard"), 1600);
-    } catch {
+      setTimeout(() => router.push("/auditor/dashboard"), 1800);
+    } catch (err) {
       setTone("alert");
-      setStatus("Could not record your vote. It may already be resolved.");
+      // Surface what the server actually said instead of guessing "already
+      // resolved". The most common real cause is a 403 for an auditor whose
+      // credentials an admin hasn't approved yet (NFR-6) — the old blanket
+      // message hid exactly that, so a brand-new auditor thought voting was
+      // broken rather than pending verification. Others: 422 insufficient
+      // reputation to stake, 409 already resolved, 400 bad stake.
+      setStatus(
+        err instanceof ApiError && err.serverMessage
+          ? err.serverMessage
+          : "Could not record your vote — please try again.",
+      );
     } finally {
       setSubmitting(false);
     }

@@ -218,6 +218,51 @@ func PendingAuditors(ctx context.Context, db *pgxpool.Pool) ([]PendingAuditor, e
 	return pgx.CollectRows(rows, pgx.RowToStructByName[PendingAuditor])
 }
 
+// AuditorStats is an auditor's own standing, for their personal dashboard.
+// Everything here is about the requesting auditor themselves — distinct from
+// PendingAuditor, which is the admin's view of *other* auditors awaiting
+// review.
+type AuditorStats struct {
+	ID                 string   `json:"id"`
+	DisplayName        string   `json:"displayName"`
+	CredentialVerified bool     `json:"credentialVerified"`
+	CredentialURL      string   `json:"credentialUrl"`
+	Tags               []string `json:"tags"`
+	RankScore          float64  `json:"rankScore"`
+	TrustWeight        float64  `json:"trustWeight"`
+	SuccessfulVotes    int      `json:"successfulVotes"`
+	FailedVotes        int      `json:"failedVotes"`
+	VotesCast          int      `json:"votesCast"`      // every vote row, including still-open ones
+	LockedStake        float64  `json:"lockedStake"`    // reputation committed to open votes
+	AvailableStake     float64  `json:"availableStake"` // rank_score - locked_stake, the max a new vote can stake
+}
+
+// GetAuditorStats loads the requesting auditor's own standing. Drives the
+// personal auditor dashboard (verification banner, reputation, vote record) so
+// an auditor can see *why* they can or can't vote (NFR-6) rather than only
+// finding out at the moment a vote is rejected.
+func GetAuditorStats(ctx context.Context, db *pgxpool.Pool, auditorID string) (AuditorStats, error) {
+	var s AuditorStats
+	err := db.QueryRow(ctx, `
+		SELECT id, display_name, credential_verified, COALESCE(credential_url, ''), tags,
+		       rank_score, trust_weight, successful_votes, failed_votes, locked_stake,
+		       (SELECT count(*) FROM votes WHERE auditor_id = u.id) AS votes_cast
+		FROM users u
+		WHERE id = $1 AND role = 'auditor'
+	`, auditorID).Scan(
+		&s.ID, &s.DisplayName, &s.CredentialVerified, &s.CredentialURL, &s.Tags,
+		&s.RankScore, &s.TrustWeight, &s.SuccessfulVotes, &s.FailedVotes, &s.LockedStake, &s.VotesCast,
+	)
+	if err != nil {
+		return AuditorStats{}, ErrAuditorNotFound
+	}
+	s.AvailableStake = s.RankScore - s.LockedStake
+	if s.AvailableStake < 0 {
+		s.AvailableStake = 0
+	}
+	return s, nil
+}
+
 // VerifyAuditor approves an auditor's linked credentials, granting them
 // voting rights.
 func VerifyAuditor(ctx context.Context, db *pgxpool.Pool, auditorID string) error {
