@@ -16,6 +16,12 @@ import (
 
 const pgUniqueViolation = "23505"
 
+// initialAuditorRankScore is the reputation a newly-signed-up auditor starts
+// with — enough to stake on a handful of votes (the UI's default stake is 1)
+// before they've earned or lost anything of their own. See the comment in
+// CreateUser for why this can't be left at the column's zero default.
+const initialAuditorRankScore = 10.0
+
 // User mirrors the full users table (packages/database/postgres/schema.sql),
 // not just the fields any one caller happens to need — later domains
 // (auditors, leaderboard, consensus) add methods against this same struct
@@ -134,12 +140,26 @@ func CreateUser(ctx context.Context, db *pgxpool.Pool, in NewUserInput) (User, e
 		tags = []string{}
 	}
 
-	u := User{Email: in.Email, Role: in.Role, DisplayName: in.DisplayName, CredentialVerified: credentialVerified}
+	// rank_score doubles as an auditor's stakeable reputation (CastVote reads
+	// it as `available = rank_score - locked_stake`). The column's schema
+	// default is 0 for journalists, who build it up from nothing by
+	// publishing — but for an auditor that default left every new signup
+	// unable to ever cast a first vote: any positive stake is rejected as
+	// "exceeds your available reputation" against a balance of exactly zero,
+	// with no way to earn any without already having some to stake. Auditors
+	// get a small bootstrap pool instead so credential verification (NFR-6)
+	// is the only real gate before their first vote.
+	rankScore := 0.0
+	if in.Role == "auditor" {
+		rankScore = initialAuditorRankScore
+	}
+
+	u := User{Email: in.Email, Role: in.Role, DisplayName: in.DisplayName, CredentialVerified: credentialVerified, RankScore: rankScore}
 	err = db.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, role, display_name, credential_url, credential_verified, tags)
-		VALUES ($1, $2, $3::user_role, $4, NULLIF($5, ''), $6, $7)
+		INSERT INTO users (email, password_hash, role, display_name, credential_url, credential_verified, tags, rank_score)
+		VALUES ($1, $2, $3::user_role, $4, NULLIF($5, ''), $6, $7, $8)
 		RETURNING id
-	`, in.Email, string(passwordHash), in.Role, in.DisplayName, in.CredentialURL, credentialVerified, tags).Scan(&u.ID)
+	`, in.Email, string(passwordHash), in.Role, in.DisplayName, in.CredentialURL, credentialVerified, tags, rankScore).Scan(&u.ID)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {

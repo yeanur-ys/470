@@ -1,14 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ApiError } from "@/lib/api";
-import { saveSession } from "@/lib/auth";
+import { getRole, getToken, getUserId, profileHref, saveSession } from "@/lib/auth";
 import { signup, ROLE_HOME } from "@/lib/models/auth";
 
 export function useSignup() {
   const router = useRouter();
+
+  // Same guard as useLogin: a signed-in user landing back on /signup should
+  // go to their own account, not see a blank signup form.
+  useEffect(() => {
+    const role = getRole();
+    const userId = getUserId();
+    if (getToken() && role && userId) {
+      router.replace(profileHref(role, userId));
+    }
+  }, [router]);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");

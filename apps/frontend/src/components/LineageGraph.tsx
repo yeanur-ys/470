@@ -142,7 +142,7 @@ export function LineageGraph({
 
       {error && <p className="notice" data-tone="alert">{error}</p>}
 
-      <div style={{ position: "relative" }}>
+      <div style={{ position: "relative", overflow: "hidden", borderRadius: "var(--radius)" }}>
         <div
           ref={containerRef}
           style={{

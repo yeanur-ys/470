@@ -35,30 +35,39 @@ SELECT setseed(0.4207);
 -- ---------------------------------------------------------------------------
 -- Clean slate for generated rows (children first, for the FKs)
 -- ---------------------------------------------------------------------------
--- Scoped by the generated ARTICLES rather than by generated claim/vote id
--- prefixes. Rows created through the running API against a demo article get
--- real random UUIDs, so an id-prefix match misses them and the article delete
--- below then fails on a foreign key. Keying off article_id catches everything
--- attached to demo data regardless of how it was created.
+-- Scoped by the demo USERS themselves (by email domain) rather than by
+-- generated id prefixes. Anything created against a demo account through the
+-- running API — a demo auditor voting on an ad hoc article, a demo
+-- journalist's article published outside the deterministic 'aaa%' id range —
+-- gets a real random UUID, so an id-prefix match misses it and a later
+-- DELETE FROM users then fails on a foreign key. Keying off the demo users'
+-- own ids instead catches everything attached to them regardless of how or
+-- when it was created.
+CREATE TEMP TABLE tmp_demo_user_id ON COMMIT DROP AS
+SELECT id FROM users WHERE email LIKE '%@demo.nextgenjournalism.test';
+
+DELETE FROM votes WHERE auditor_id IN (SELECT id FROM tmp_demo_user_id);
 DELETE FROM votes WHERE claim_id IN (
   SELECT c.id FROM claims c
   JOIN articles a ON a.id = c.article_id
-  WHERE a.id::text LIKE 'aaa%'
+  WHERE a.journalist_id IN (SELECT id FROM tmp_demo_user_id)
 );
-DELETE FROM appeals WHERE article_id IN (SELECT id FROM articles WHERE id::text LIKE 'aaa%');
-DELETE FROM claims  WHERE article_id IN (SELECT id FROM articles WHERE id::text LIKE 'aaa%');
+DELETE FROM appeals WHERE journalist_id IN (SELECT id FROM tmp_demo_user_id);
+DELETE FROM claims WHERE article_id IN (
+  SELECT id FROM articles WHERE journalist_id IN (SELECT id FROM tmp_demo_user_id)
+);
 -- Two things have to be undone before generated articles can be removed:
 --   * parent_article_id self-references, so the links must be cut first;
 --   * the FR-13/F-20 immutability lock refuses DELETE on any article past the
 --     readership threshold, which most generated rows are. Clearing the flag
---     here is deliberate and scoped strictly to demo rows (the 'aaa%' id
---     prefix) — it is the one place that's legitimate, because these articles
---     were never real. Nothing else in the codebase clears it.
+--     here is deliberate and scoped strictly to demo journalists' own rows —
+--     it is the one place that's legitimate, because these articles were
+--     never real. Nothing else in the codebase clears it.
 UPDATE articles
 SET parent_article_id = NULL, immutability_locked = false
-WHERE id::text LIKE 'aaa%';
-DELETE FROM articles WHERE id::text LIKE 'aaa%';
-DELETE FROM users WHERE email LIKE '%@demo.nextgenjournalism.test';
+WHERE journalist_id IN (SELECT id FROM tmp_demo_user_id);
+DELETE FROM articles WHERE journalist_id IN (SELECT id FROM tmp_demo_user_id);
+DELETE FROM users WHERE id IN (SELECT id FROM tmp_demo_user_id);
 
 -- ---------------------------------------------------------------------------
 -- Categories. These double as claim tags and as auditor expertise tags, which
@@ -190,6 +199,143 @@ FROM generate_series(1, 900) AS n;
 
 CREATE INDEX ON tmp_article(journalist_idx, category_idx, created_at);
 
+-- ---------------------------------------------------------------------------
+-- Headline and lede banks, per category. Previously every article's title and
+-- body were built from one shared 12-phrase template regardless of category
+-- ("Economic Analyst: Records Show a Widening Gap"), which read as an obvious
+-- placeholder rather than a story. These are still procedurally combined
+-- (6 headlines x 2 ledes x 12 categories, picked deterministically by
+-- article number) rather than 900 hand-written articles, but each one is
+-- specific to its beat and reads like an actual wire story. Every place,
+-- agency and official named here is fictional — deliberately generic enough
+-- ("Cedar Falls", "the National Economic Bureau") not to resemble any real
+-- jurisdiction, so the corpus feels real without making claims about anyone
+-- real.
+-- ---------------------------------------------------------------------------
+CREATE TEMP TABLE tmp_headline_bank(category_idx int, k int, headline text) ON COMMIT DROP;
+INSERT INTO tmp_headline_bank(category_idx, k, headline) VALUES
+  (0,0,'National Economic Bureau Data Shows Widening Trade Gap'),
+  (0,1,'Officials Dispute Inflation Figures Ahead of Budget Vote'),
+  (0,2,'Leaked Treasury Memo Contradicts Public Growth Forecast'),
+  (0,3,'Audit Finds Discrepancy in Regional Jobs Report'),
+  (0,4,'Analysts Question Methodology Behind GDP Revision'),
+  (0,5,'Budget Office Opens Inquiry Into Spending Overrun'),
+
+  (1,0,'Foreign Ministry Confirms Talks Stalled Over Border Dispute'),
+  (1,1,'New Documents Surface From Regional Security Summit'),
+  (1,2,'Trade Commission Reviews Terms of Contested Pact'),
+  (1,3,'Officials Walk Back Earlier Statement on Troop Movements'),
+  (1,4,'Analysis: Who Benefits From the Stalled Ceasefire'),
+  (1,5,'Second Source Corroborates Account of Backchannel Talks'),
+
+  (2,0,'Cyber Defense Unit Reports Breach at Regional Data Center'),
+  (2,1,'Border Agency Disputes Count of Intercepted Shipments'),
+  (2,2,'Internal Memo Contradicts Public Threat Assessment'),
+  (2,3,'National Security Directorate Opens Review of Protocol Lapse'),
+  (2,4,'Records Show Pattern of Delayed Incident Reporting'),
+  (2,5,'Correction and Context: What the Breach Report Actually Said'),
+
+  (3,0,'Public Health Authority Revises Outbreak Case Count'),
+  (3,1,'Northbridge General Hospital Disputes Staffing Shortage Claim'),
+  (3,2,'Health Ministry Data Shows Gap in Vaccination Coverage'),
+  (3,3,'Committee Opens Inquiry Into Delayed Lab Results'),
+  (3,4,'A Second Source Comes Forward on Ward Closure Decision'),
+  (3,5,'Audit Review Finds Discrepancy in Reported Wait Times'),
+
+  (4,0,'Climate Research Institute Data Shows Record Regional Heat'),
+  (4,1,'Weather Service Disputes Figures Cited in Flood Report'),
+  (4,2,'Environmental Protection Bureau Opens Review of Emissions Filing'),
+  (4,3,'New Documents Surface on Delayed Coastal Assessment'),
+  (4,4,'Analysis: Who Benefits From the Rezoned Wetlands Deal'),
+  (4,5,'Correction and Context: Rainfall Numbers Behind the Claim'),
+
+  (5,0,'District Court Filing Contradicts Earlier Public Statement'),
+  (5,1,'Attorney General''s Office Disputes Timeline in Fraud Case'),
+  (5,2,'Judicial Oversight Board Opens Inquiry Into Case Backlog'),
+  (5,3,'Records Show Pattern in Sealed Settlement Filings'),
+  (5,4,'A Second Source Comes Forward in Corruption Probe'),
+  (5,5,'Follow-up: Three Months On, Case Still Unresolved'),
+
+  (6,0,'Data Protection Authority Reviews Breach Disclosure Timeline'),
+  (6,1,'Telecom Regulator Disputes Figures on Outage Scope'),
+  (6,2,'Internal Memo Contradicts Statement on User Data Use'),
+  (6,3,'Digital Standards Office Opens Inquiry Into Algorithm Bias Claim'),
+  (6,4,'Audit Review Finds Discrepancy in Reported Uptime'),
+  (6,5,'Correction and Context: What the Leaked Filing Actually Shows'),
+
+  (7,0,'Elections Commission Disputes Figures in Turnout Report'),
+  (7,1,'Ballot Integrity Office Opens Inquiry Into Count Discrepancy'),
+  (7,2,'Officials Confirm Recount Underway in Contested District'),
+  (7,3,'Records Show Delay in Certifying Precinct Results'),
+  (7,4,'A Second Source Corroborates Account of Poll Worker Dispute'),
+  (7,5,'Analysis: Who Benefits From the Redistricting Proposal'),
+
+  (8,0,'Labour Relations Board Disputes Figures on Strike Turnout'),
+  (8,1,'Ministry of Employment Data Shows Gap in Wage Reporting'),
+  (8,2,'Workers'' Council Opens Inquiry Into Overtime Claims'),
+  (8,3,'Internal Memo Contradicts Statement on Layoff Timeline'),
+  (8,4,'A Second Source Comes Forward on Safety Complaint'),
+  (8,5,'Follow-up: Three Months On, Contract Talks Still Stalled'),
+
+  (9,0,'Cedar Falls City Council Disputes Figures on Vacancy Rate'),
+  (9,1,'Housing Authority Data Shows Widening Affordability Gap'),
+  (9,2,'Zoning Board Opens Inquiry Into Fast-Tracked Permit'),
+  (9,3,'Records Show Pattern in Delayed Inspection Reports'),
+  (9,4,'A Second Source Comes Forward on Eviction Filing Surge'),
+  (9,5,'Correction and Context: The Numbers Behind the Rent Claim'),
+
+  (10,0,'Board of Education Disputes Figures on Graduation Rate'),
+  (10,1,'Millhaven School District Data Shows Gap in Funding Formula'),
+  (10,2,'Education Ministry Opens Inquiry Into Test Score Anomaly'),
+  (10,3,'Internal Memo Contradicts Statement on Class Size Claim'),
+  (10,4,'A Second Source Comes Forward on Curriculum Review'),
+  (10,5,'Follow-up: Three Months On, Staffing Shortage Persists'),
+
+  (11,0,'Department of Transport Disputes Figures on Delay Rate'),
+  (11,1,'Transit Authority Opens Inquiry Into Missed Inspection'),
+  (11,2,'Aviation Safety Board Reviews Incident Reporting Timeline'),
+  (11,3,'Records Show Pattern in Deferred Maintenance Filings'),
+  (11,4,'A Second Source Comes Forward on Signal Failure Report'),
+  (11,5,'Correction and Context: What the Ridership Numbers Show');
+
+CREATE TEMP TABLE tmp_lede_bank(category_idx int, k int, lede text) ON COMMIT DROP;
+INSERT INTO tmp_lede_bank(category_idx, k, lede) VALUES
+  (0,0,'Newly released figures from the National Economic Bureau show a wider gap between projected and actual output for the quarter, reigniting debate over the pace of the recovery.'),
+  (0,1,'A memo circulated inside the Treasury Office appears to contradict the growth forecast the department presented publicly last month, according to a copy reviewed for this story.'),
+
+  (1,0,'Negotiators from both delegations left the table without a joint statement, according to two officials familiar with the talks, deepening uncertainty over the border agreement.'),
+  (1,1,'The Foreign Ministry confirmed Tuesday that backchannel discussions continued through the weekend, even as public statements suggested the process had stalled.'),
+
+  (2,0,'The Cyber Defense Unit is investigating a breach at a regional data center that may have exposed records dating back several years, officials confirmed.'),
+  (2,1,'Internal correspondence reviewed for this story appears to conflict with the National Security Directorate''s public account of how quickly the incident was reported.'),
+
+  (3,0,'The Public Health Authority revised its outbreak case count for a third time this month, citing delays in lab confirmation from outlying clinics.'),
+  (3,1,'Staff at Northbridge General Hospital say a reported staffing shortage was worse than officials initially disclosed, based on internal scheduling records.'),
+
+  (4,0,'Data from the Climate Research Institute shows the region recorded its warmest quarter on record, part of a pattern researchers say is accelerating faster than earlier models predicted.'),
+  (4,1,'The Environmental Protection Bureau is reviewing an emissions filing after an internal audit flagged inconsistencies with figures the company reported publicly.'),
+
+  (5,0,'A filing unsealed in District Court this week appears to contradict testimony given by a senior official earlier in the case.'),
+  (5,1,'The Office of the Attorney General disputed the timeline reporters laid out in an earlier story, saying the investigation began weeks before the date first reported.'),
+
+  (6,0,'The Data Protection Authority is reviewing how long a major platform waited before disclosing a breach affecting user accounts.'),
+  (6,1,'An internal memo obtained for this story appears to contradict the company''s public statement on how user data is shared with advertisers.'),
+
+  (7,0,'The Elections Commission disputed turnout figures reported earlier this week, saying a data entry error inflated the count in two precincts.'),
+  (7,1,'Officials confirmed a recount is underway in a closely contested district after the initial margin fell within the threshold that triggers automatic review.'),
+
+  (8,0,'The Labour Relations Board is reviewing turnout figures from last week''s strike vote after organizers disputed the official count.'),
+  (8,1,'An internal memo appears to contradict the company''s public statement on the timeline for planned layoffs, according to a copy reviewed for this story.'),
+
+  (9,0,'City Council figures show the vacancy rate in Cedar Falls narrowing even as tenant groups report a widening gap in affordability.'),
+  (9,1,'The Housing Authority is facing questions after records showed a pattern of delayed inspections in buildings with open code violations.'),
+
+  (10,0,'The Board of Education disputed graduation rate figures cited in an earlier report, saying the calculation did not account for a change in cohort methodology.'),
+  (10,1,'Funding records from Millhaven School District show a widening gap between per-student spending in neighboring attendance zones.'),
+
+  (11,0,'Department of Transport figures show on-time performance declining for a third consecutive quarter, even as officials touted improvements publicly.'),
+  (11,1,'The Transit Authority opened an inquiry after records showed a missed inspection on a rail segment flagged for maintenance twice this year.');
+
 -- Chain articles within each beat. NULLIF(..., ...) breaks the chain every
 -- 5th article so each beat contains several separate story arcs.
 CREATE TEMP TABLE tmp_article_linked AS
@@ -210,15 +356,8 @@ SELECT
   a.id,
   j.id,
   a.parent_article_id,
-  c.name || ': ' || (ARRAY[
-    'Records Show a Widening Gap','Officials Dispute the Figures','New Documents Surface',
-    'What the Data Actually Says','Follow-up: Three Months On','The Numbers Behind the Claim',
-    'A Second Source Comes Forward','Internal Memo Contradicts Statement','Audit Review Finds Discrepancy',
-    'Committee Opens an Inquiry','Correction and Context','Analysis: Who Benefits'
-  ])[1 + (a.n % 12)] || ' (#' || a.n || ')',
-  'Reporting on ' || lower(c.name) || ' matters. This story is part of an ongoing series; '
-    || 'figures cited here are tagged as individual claims and submitted for independent audit. '
-    || 'Story reference ' || a.n || '.',
+  hb.headline || ' (#' || a.n || ')',
+  lb.lede || ' Individual claims below are tagged by category and submitted for independent audit; story reference ' || a.n || '.',
   'sig-' || encode(digest('article-' || a.n, 'sha256'), 'hex'),
   a.readership_volume,
   0, 0, 0,
@@ -226,7 +365,8 @@ SELECT
   a.created_at
 FROM tmp_article_linked a
 JOIN tmp_journalist j ON j.idx = a.journalist_idx
-JOIN tmp_category   c ON c.idx = a.category_idx;
+JOIN tmp_headline_bank hb ON hb.category_idx = a.category_idx AND hb.k = (a.n % 6)
+JOIN tmp_lede_bank     lb ON lb.category_idx = a.category_idx AND lb.k = (a.n % 2);
 
 -- ---------------------------------------------------------------------------
 -- Claims: 1-4 per article. Most carry the article's own category, but ~25%

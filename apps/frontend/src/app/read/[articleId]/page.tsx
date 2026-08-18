@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
+import { HighlightableText } from "@/components/HighlightableText";
 import { PublicHeader } from "@/components/PublicHeader";
 import { Stamp } from "@/components/Stamp";
 import { useReadArticle } from "@/hooks/useReadArticle";
@@ -46,7 +47,12 @@ export default function ReadArticlePage() {
               <Link href={`/profile/${article.journalistId}`}>view journalist's record ↗</Link>
             </p>
 
-            <div style={{ marginTop: "1.5rem", whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{article.body}</div>
+            <p className="eyebrow" style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>
+              Select a passage to highlight it — it&apos;ll be here next time you read this.
+            </p>
+            <div>
+              <HighlightableText articleId={params.articleId} text={article.body} />
+            </div>
 
             <h2 style={{ marginTop: "2.5rem" }}>Tagged claims</h2>
             {article.claims.length === 0 && (

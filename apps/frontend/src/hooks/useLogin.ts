@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ApiError } from "@/lib/api";
-import { saveSession } from "@/lib/auth";
+import { getRole, getToken, getUserId, profileHref, saveSession } from "@/lib/auth";
 import { login, ROLE_HOME } from "@/lib/models/auth";
 
 export function useLogin() {
@@ -22,6 +22,17 @@ export function useLogin() {
       setError("Your session expired — please sign in again.");
     }
   }, []);
+
+  // A signed-in user who lands back on /login (bookmark, back button, a
+  // stale link) previously saw the login form again instead of their own
+  // account — nothing here ever checked for an existing session.
+  useEffect(() => {
+    const role = getRole();
+    const userId = getUserId();
+    if (getToken() && role && userId) {
+      router.replace(profileHref(role, userId));
+    }
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
-import { clearSession, getUserId, type Role } from "@/lib/auth";
+import { clearSession, getUserId, profileHref, type Role } from "@/lib/auth";
 
 const NAV_ITEMS: Record<Role, { href: string; label: string }[]> = {
   journalist: [
@@ -56,13 +56,13 @@ export function DashboardNav({ role }: { role: Role }) {
       </div>
 
       <div className="nav-rail__footer">
-        {role === "journalist" && getUserId() && (
+        {getUserId() && (
           <Link
-            href={`/profile/${getUserId()}`}
+            href={profileHref(role, getUserId()!)}
             className="nav-rail__item"
             style={{ padding: "0.4rem 0.5rem 0.4rem 0" }}
           >
-            View public profile ↗
+            {role === "journalist" ? "View public profile ↗" : "View profile"}
           </Link>
         )}
         <button type="button" className="nav-rail__item" onClick={logout} style={{ padding: "0.4rem 0.5rem 0.4rem 0" }}>

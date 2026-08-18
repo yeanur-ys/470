@@ -174,10 +174,14 @@ export function useLineageGraph({
           minCameraRatio: sigmaConfig.minCameraRatio,
           maxCameraRatio: sigmaConfig.maxCameraRatio,
           renderEdgeLabels: false,
-          // Labels stay off by default: at 2,000 nodes per-node labels are an
-          // unreadable smear. The on-canvas cluster labels carry orientation
-          // instead, and individual titles surface on hover.
-          renderLabels: g.order <= 120,
+          // Labels are size-gated rather than all-or-nothing: at any graph
+          // size, showing every node's title at once is an unreadable smear,
+          // so only the biggest (highest-readership) nodes keep a persistent
+          // label — the "key main nodes" — while the rest stay unlabeled
+          // until hovered. Hover already forces a label via `forceLabel` in
+          // the nodeReducer below, which bypasses this threshold entirely.
+          renderLabels: true,
+          labelRenderedSizeThreshold: 13,
           labelDensity: 0.6,
           labelGridCellSize: 120,
           defaultNodeColor: sigmaConfig.defaultNodeColor,
@@ -266,8 +270,12 @@ export function useLineageGraph({
   }, [showTopicEdges, graph, sigmaInstance]);
 
   // Hover-to-highlight-neighbours: fade everything that isn't the hovered
-  // node or a direct neighbour, so local structure is legible inside a dense
-  // tangle without needing to zoom.
+  // node or a direct lineage neighbour (its parent and children on the
+  // SEQUENCE_OF chain — the "two sides" of the story), so local structure is
+  // legible inside a dense tangle without needing to zoom. Deliberately
+  // excludes topic (co-tag) edges here: those connect every article sharing a
+  // category, so including them turned a hover into another dense cloud
+  // rather than the isolated neighbourhood this is meant to show.
   useEffect(() => {
     if (!sigmaInstance || !graph) return;
 
@@ -278,7 +286,11 @@ export function useLineageGraph({
       return;
     }
 
-    const neighbors = new Set(graph.neighbors(hoveredNode));
+    const neighbors = new Set<string>();
+    graph.forEachEdge(hoveredNode, (_edge, attrs, source, target) => {
+      if (attrs.kind !== "sequence") return;
+      neighbors.add(source === hoveredNode ? target : source);
+    });
     neighbors.add(hoveredNode);
 
     sigmaInstance.setSetting("nodeReducer", (node, data) => {
@@ -288,7 +300,7 @@ export function useLineageGraph({
     });
     sigmaInstance.setSetting("edgeReducer", (edge, data) => {
       const [source, target] = graph.extremities(edge);
-      if (source === hoveredNode || target === hoveredNode) {
+      if (data.kind === "sequence" && (source === hoveredNode || target === hoveredNode)) {
         return { ...data, color: "#35506b", size: 1.4, hidden: false, zIndex: 1 };
       }
       return { ...data, color: HIDDEN_COLOR, hidden: true };

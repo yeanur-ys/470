@@ -58,6 +58,21 @@ export function getUserId(): string | null {
   return localStorage.getItem(USER_ID_KEY);
 }
 
+// Where "your profile" is for each role. Journalists have a public
+// lineage-graph profile keyed by their own user id; auditors and admins get a
+// lighter identity+stats page under their own role tree, since there's no
+// public directory of auditors/admins the way there is of journalists.
+export function profileHref(role: Role, userId: string): string {
+  switch (role) {
+    case "journalist":
+      return `/profile/${userId}`;
+    case "auditor":
+      return "/auditor/profile";
+    case "admin":
+      return "/admin/profile";
+  }
+}
+
 export function clearSession(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(ROLE_KEY);
