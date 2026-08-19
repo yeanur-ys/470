@@ -1,20 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import { PageHeader } from "@/components/PageHeader";
-import { getAuditorStats } from "@/lib/models/auditors";
-import type { AuditorStats } from "@/types/domain";
+import { useAuditorProfile } from "@/hooks/useAuditorProfile";
 
 export default function AuditorProfilePage() {
-  const [stats, setStats] = useState<AuditorStats | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    getAuditorStats()
-      .then(setStats)
-      .catch(() => setError("Could not load your profile."));
-  }, []);
+  const { stats, error } = useAuditorProfile();
 
   return (
     <>

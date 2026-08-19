@@ -1,10 +1,11 @@
 # nextGENjournalism
 
-A monorepo for a transparent journalism platform: role-based Next.js
-dashboards, a Go API + CDC-sync backend, a Python graph-analysis worker, and a
-Postgres/Neo4j/Redis/Kafka data layer. See `SRS.pdf` (or your original
-`Document_470.pdf`) for the full requirements and `MIGRATION_NOTES.md` for
-exactly what was fixed vs. the previous `copilot/nextgenjournalism` branch.
+A transparent journalism platform: role-based Next.js dashboards, a Go API +
+CDC-sync backend, a Python graph-analysis worker, and a
+Postgres/Neo4j/Redis/Kafka data layer. `apps/frontend` and `apps/go-backend`
+are each internally structured as MVC (see below); the repo as a whole is a
+pnpm/Turborepo workspace. See `SEED_DATA.md` for the small hand-written demo
+dataset.
 
 ## Layout
 
@@ -12,8 +13,8 @@ exactly what was fixed vs. the previous `copilot/nextgenjournalism` branch.
 nextGENjournalism/
 ├── .github/workflows/            # CI: frontend-ci.yml, backend-ci.yml
 ├── apps/
-│   ├── frontend/                 # Next.js App Router, role dashboards, Sigma.js graph
-│   ├── go-backend/                # Go API: auth, articles, consensus, compliance, CDC-sync
+│   ├── frontend/                 # Next.js App Router — MVC, see below
+│   ├── go-backend/                # Go API — MVC, see below
 │   └── python-worker/             # Louvain clustering worker (reads/writes Neo4j)
 ├── packages/
 │   ├── config-eslint/             # @ngj/config-eslint
@@ -28,6 +29,38 @@ nextGENjournalism/
 ├── pnpm-workspace.yaml
 └── turbo.json
 ```
+
+### Frontend MVC (`apps/frontend/src/`)
+
+| Layer | Path | Role |
+|---|---|---|
+| View | `app/**/page.tsx`, `layout.tsx` | Route components — render only, no fetching or business logic |
+| Controller | `hooks/use*.ts` | Data fetching, local state, and view-specific business rules (e.g. `useJournalistDashboard` decides which margin notes to show) |
+| Model | `lib/models/*.ts` | One file per backend domain (`articles.ts`, `claims.ts`, `votes.ts`, …) — thin wrappers over `lib/api.ts` calling go-backend endpoints |
+| Shared | `types/domain.ts` | Types shared by every layer |
+| — | `components/` | Reusable presentational pieces (`DashboardNav`, `HighlightableText`, `ui/Button`, …) shared across views |
+| — | `graph/` | Sigma.js/WebGL-specific rendering: shaders, semantic zoom, cluster labels — used by `components/LineageGraph.tsx` and `app/graph/page.tsx` |
+| — | `lib/auth.ts`, `lib/crypto.ts` | Session storage/role helpers and client-side article signing, independent of any one domain |
+
+A page never calls `lib/models` directly — it calls a hook, which calls a
+model function. Keeping business rules (what counts as noteworthy, what an
+auditor's available stake is) in hooks rather than in `lib/models` or the page
+component is deliberate: models stay dumb HTTP wrappers, views stay dumb
+render functions.
+
+### Backend MVC (`apps/go-backend/internal/`)
+
+| Layer | Path | Role |
+|---|---|---|
+| Model | `models/` | Domain types + all DB/business logic (`article.go`, `claim.go`, `vote.go`, `user.go`, `ranking.go` for the trust-weight formula) — the only layer that talks to Postgres/Neo4j directly |
+| Controller | `controllers/` | HTTP handlers — decode request, call a model function, hand the result to a view |
+| View | `views/` | Response-shape structs (e.g. `SessionView`) — keeps JSON wire format decisions out of both controllers and models |
+| — | `server/` | Route table (`routes.go`), middleware, CORS |
+| — | `auth/` | JWT issuing/verification, request-context helpers |
+| — | `db/`, `redisstore/`, `kafka/` | Connection setup for Postgres/Neo4j, Redis, and the Kafka producer/consumer used by CDC-sync |
+| — | `config/` | Env var loading |
+
+`cmd/api/main.go` wires all of the above together and starts the HTTP server.
 
 ## Prerequisites
 
@@ -51,10 +84,12 @@ pnpm debezium:register
 ```
 
 **If you already have a running database from before this update**, apply the
-new migration (adds `users.credential_verified` for NFR-6):
+pending migrations in order (adds `users.credential_verified` for NFR-6, then
+the auditor reputation ledger + locks):
 
 ```bash
 docker exec -i ngj-postgres psql -U ngj -d nextgenjournalism < packages/database/postgres/migrations/0002_add_credential_verification.sql
+docker exec -i ngj-postgres psql -U ngj -d nextgenjournalism < packages/database/postgres/migrations/0003_auditor_reputation_and_locks.sql
 ```
 
 ## 2. Seed an admin account
@@ -99,10 +134,12 @@ status, ~1,500 settled votes, 12 active appeals and 8 retractions. Every
 password is `password123`; accounts are `journalist1@demo.nextgenjournalism.test`
 … , `auditor1@…`, `admin@demo.nextgenjournalism.test`.
 
-It's deterministic (`setseed`) and safe to re-run — it removes only the rows it
-generated. **Register the Debezium connector first** (step above), so the
-inserts stream into Neo4j through the CDC pipeline rather than needing a
-separate graph load.
+It's deterministic (`setseed`) and safe to re-run — it clears only rows
+belonging to those demo accounts (by email domain) before regenerating them,
+so it won't touch anything created against a demo account through the running
+API. **Register the Debezium connector first** (step above), so the inserts
+stream into Neo4j through the CDC pipeline rather than needing a separate
+graph load.
 
 ## 3. Run the Go backend
 
@@ -128,7 +165,10 @@ curl -X POST http://localhost:8080/auth/signup \
 ```
 
 Or for an auditor (requires a credential URL + at least one tag — you won't be
-able to vote until an admin approves it, see the `/admin/auditors/*` routes below):
+able to vote until an admin approves it, see the `/admin/auditors/*` routes
+below). New auditors start with a small bootstrap reputation (`rank_score`
+10.0) so their first vote isn't blocked by a zero stakeable balance once
+they're verified:
 
 ```bash
 curl -X POST http://localhost:8080/auth/signup \
@@ -169,30 +209,39 @@ pnpm dev
 
 Open http://localhost:3010 → **Read the news** needs no account at all —
 `/read` lists every story, `/read/[id]` shows the full text plus every
-tagged claim's verdict. That's the entire reader experience; it never
-touches `/login` or `/signup`.
+tagged claim's verdict. Select any passage of the body text to highlight it
+(amber/green/blue) — highlights persist per-article in the browser via
+`localStorage`, since readers have no accounts to save them against. That's
+the entire reader experience; it never touches `/login` or `/signup`.
 
 For the other three roles: **Open a desk** to sign up as a journalist or
 auditor, or **Sign in** if you already have an account (admins are seeded
-directly — step 2). Each role lands on its own dashboard:
+directly — step 2). The header shows a **Profile** link and **Log out** once
+signed in. Each role lands on its own dashboard:
 
 - **Journalist** (`/journalist/dashboard`): lists your articles, links to
   **Publish** (writes + client-side signs an article, then lets you tag
   `#Claim` statements) and **Appeals** (stake rank score to dispute a ruling).
   The dashboard also has a **self-correct** panel — paste a claim ID from the
   publish flow to mark it self-corrected before an auditor resolves it.
+  Their **profile** (`/profile/[journalistId]`) is public — see below.
 - **Auditor** (`/auditor/dashboard`): lists claims awaiting cross-tag
   consensus; click into one to stake reputation and vote. New auditor
   signups can't vote until an admin approves their linked credential
-  (NFR-6) — see Admin below.
+  (NFR-6) — see Admin below. Their **profile** (`/auditor/profile`) is
+  private to them and shows reputation, trust weight, available-to-stake
+  balance, vote record, and linked credential.
 - **Admin** (`/admin/dashboard`): lists every article; **Auditors** reviews
   and approves newly signed-up auditors' credentials; **Compliance** applies
   a GDPR/DMCA retraction (tombstones the content, greys out the node,
-  deducts the author's rank score).
+  deducts the author's rank score). Their **profile** (`/admin/profile`) is
+  an identity card with quick links into these sections.
 - **Public profile** (`/profile/[journalistId]`): anyone can view a
   journalist's lineage graph — a live Sigma.js/WebGL rendering of their
   article graph read straight from Neo4j, colored by Corruption Factor and
-  sized by readership.
+  sized by readership. Only journalists have a public profile this way;
+  auditors and admins don't have a public directory, so their profile pages
+  live under their own role tree instead (above).
 - **Epistemic graph** (`/graph`): the whole platform in one view, also public.
   Nodes are sized by readership (FR-12) and coloured either by Louvain topic
   community (the default here) or by Corruption Factor (FR-10) — toggle at the
