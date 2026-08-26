@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,44 +20,119 @@ import (
 // response for every read endpoint — the same convention already used by
 // User/PendingAuditor above.
 type Article struct {
-	ID                  string    `json:"id"`
-	JournalistID        string    `json:"journalistId"`
-	ParentArticleID     *string   `json:"parentArticleId,omitempty"`
-	Title               string    `json:"title"`
-	Body                string    `json:"body"`
-	Signature           string    `json:"signature"`
-	ReadershipVolume    int64     `json:"readershipVolume"`
-	VerifiedClaims      int       `json:"verifiedClaims"`
-	SelfCorrectedClaims int       `json:"selfCorrectedClaims"`
-	FalseClaims         int       `json:"falseClaims"`
-	IsRetracted         bool      `json:"isRetracted"`
-	CreatedAt           time.Time `json:"createdAt"`
+	ID                  string  `json:"id"`
+	JournalistID        string  `json:"journalistId"`
+	ParentArticleID     *string `json:"parentArticleId,omitempty"`
+	Title               string  `json:"title"`
+	Body                string  `json:"body"`
+	Signature           string  `json:"signature"`
+	ReadershipVolume    int64   `json:"readershipVolume"`
+	VerifiedClaims      int     `json:"verifiedClaims"`
+	SelfCorrectedClaims int     `json:"selfCorrectedClaims"`
+	FalseClaims         int     `json:"falseClaims"`
+	IsRetracted         bool    `json:"isRetracted"`
+	// Only populated by ArticlesByJournalist — an article can carry at most
+	// one active appeal at a time (uniq_active_appeal_per_article), so this is
+	// what lets the appeals form warn before a doomed second attempt on an
+	// article that already has one open.
+	HasActiveAppeal bool      `json:"hasActiveAppeal,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 const articleColumns = `id, journalist_id, parent_article_id, title, body, signature,
 	       readership_volume, verified_claims, self_corrected_claims, false_claims,
 	       is_retracted, created_at`
 
-// ListArticles is the public reader listing: latest 100 stories.
-func ListArticles(ctx context.Context, db *pgxpool.Pool) ([]Article, error) {
+// defaultArticlesPageSize/maxArticlesPageSize bound the public reader listing's
+// page size — the same denial-of-service reasoning as ClampGraphLimit (below,
+// graph.go). The default of 100 preserves the endpoint's old hardcoded LIMIT
+// 100 for any caller that doesn't ask for a specific page size (the admin
+// compliance ledger wants "everything", not 20 at a time).
+const (
+	defaultArticlesPageSize = 100
+	maxArticlesPageSize     = 100
+)
+
+// ClampArticlesPageSize turns a raw ?pageSize= query value into a bounded int.
+func ClampArticlesPageSize(raw string) int {
+	if raw == "" {
+		return defaultArticlesPageSize
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return defaultArticlesPageSize
+	}
+	if n > maxArticlesPageSize {
+		return maxArticlesPageSize
+	}
+	return n
+}
+
+// ClampArticlesPage turns a raw ?page= query value into a 1-based page number.
+func ClampArticlesPage(raw string) int {
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
+
+// PaginatedArticles is the public reader listing's response shape: one page
+// of stories plus enough information (total, page, pageSize) for the client
+// to render "page N of M" / a Next control without a second round trip.
+type PaginatedArticles struct {
+	Articles []Article `json:"articles"`
+	Total    int       `json:"total"`
+	Page     int       `json:"page"`
+	PageSize int       `json:"pageSize"`
+}
+
+// ListArticles is the public reader listing, paginated newest-first. Readers
+// get 20 at a time (F-list pagination); the admin compliance ledger asks for
+// pageSize=100 to see everything on one screen, matching the endpoint's old
+// hardcoded behaviour before pagination existed.
+func ListArticles(ctx context.Context, db *pgxpool.Pool, page, pageSize int) (PaginatedArticles, error) {
+	var total int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM articles`).Scan(&total); err != nil {
+		return PaginatedArticles{}, err
+	}
+
+	// pgx.RowToStructByName requires every exported Article field to have a
+	// matching returned column, including HasActiveAppeal -- which only
+	// ArticlesByJournalist's query actually computes. The public listing has
+	// no single "requesting journalist" to scope an appeal check to, so it's
+	// hardcoded false here (also its zero value, so this is a no-op for the
+	// JSON response, purely there to satisfy the scan).
 	rows, err := db.Query(ctx, `
-		SELECT `+articleColumns+`
+		SELECT `+articleColumns+`, false AS has_active_appeal
 		FROM articles
 		ORDER BY created_at DESC
-		LIMIT 100
-	`)
+		LIMIT $1 OFFSET $2
+	`, pageSize, (page-1)*pageSize)
 	if err != nil {
-		return nil, err
+		return PaginatedArticles{}, err
 	}
 	defer rows.Close()
-	return pgx.CollectRows(rows, pgx.RowToStructByName[Article])
+
+	articles, err := pgx.CollectRows(rows, pgx.RowToStructByName[Article])
+	if err != nil {
+		return PaginatedArticles{}, err
+	}
+	if articles == nil {
+		articles = []Article{}
+	}
+
+	return PaginatedArticles{Articles: articles, Total: total, Page: page, PageSize: pageSize}, nil
 }
 
 // ArticlesByJournalist implements the journalist dashboard's article list
 // (FR-1: each journalist manages their own graph of articles).
 func ArticlesByJournalist(ctx context.Context, db *pgxpool.Pool, journalistID string) ([]Article, error) {
 	rows, err := db.Query(ctx, `
-		SELECT `+articleColumns+`
+		SELECT `+articleColumns+`,
+		       EXISTS(
+		         SELECT 1 FROM appeals ap WHERE ap.article_id = articles.id AND ap.status = 'active'
+		       ) AS has_active_appeal
 		FROM articles
 		WHERE journalist_id = $1
 		ORDER BY created_at DESC

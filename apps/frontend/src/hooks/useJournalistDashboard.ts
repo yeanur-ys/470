@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getMyArticles } from "@/lib/models/articles";
-import { selfCorrectClaim } from "@/lib/models/claims";
-import type { Article } from "@/types/domain";
+import { getMyClaims, selfCorrectClaim, tagClaim } from "@/lib/models/claims";
+import type { Article, JournalistClaim } from "@/types/domain";
 
 interface MarginNote {
   text: string;
@@ -50,45 +50,146 @@ function buildNotes(articles: Article[] | null): MarginNote[] {
 
 export function useJournalistDashboard() {
   const [articles, setArticles] = useState<Article[] | null>(null);
+  const [claims, setClaims] = useState<JournalistClaim[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [claimId, setClaimId] = useState("");
-  const [selfCorrectStatus, setSelfCorrectStatus] = useState<string | null>(null);
-  const [selfCorrectTone, setSelfCorrectTone] = useState<"ok" | "alert">("ok");
-  const [submittingSelfCorrect, setSubmittingSelfCorrect] = useState(false);
+  // Which story's claims panel is open — only one at a time, so claims stay
+  // scoped per story instead of piling up in one long flat list.
+  const [expandedArticleId, setExpandedArticleId] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Editing an existing (still-pending) claim: a "correction" means fixing
+  // what the claim actually says, not just relabelling it, so this doubles as
+  // the self-correct action.
+  const [editingClaimId, setEditingClaimId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editTag, setEditTag] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editStatus, setEditStatus] = useState<string | null>(null);
+  const [editTone, setEditTone] = useState<"ok" | "alert">("ok");
+
+  // Tagging a brand-new claim on a story that's already been published — not
+  // just in the one-shot window right after publishing it.
+  const [newClaimText, setNewClaimText] = useState("");
+  const [newClaimTag, setNewClaimTag] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addStatus, setAddStatus] = useState<string | null>(null);
+
+  const loadClaims = useCallback(() => {
+    getMyClaims()
+      .then(setClaims)
+      .catch(() => setError("Could not load your tagged claims."));
+  }, []);
+
+  const loadArticles = useCallback(() => {
     getMyArticles()
       .then(setArticles)
       .catch(() => setError("Could not load your articles."));
   }, []);
 
-  async function handleSelfCorrect(e: React.FormEvent) {
+  useEffect(() => {
+    loadArticles();
+    loadClaims();
+  }, [loadArticles, loadClaims]);
+
+  const claimsByArticle = useMemo(() => {
+    const map = new Map<string, JournalistClaim[]>();
+    for (const c of claims ?? []) {
+      const bucket = map.get(c.articleId);
+      if (bucket) bucket.push(c);
+      else map.set(c.articleId, [c]);
+    }
+    return map;
+  }, [claims]);
+
+  function toggleStory(articleId: string) {
+    const opening = expandedArticleId !== articleId;
+    setExpandedArticleId(opening ? articleId : null);
+    // Leaving a claim's edit form open across a different story (or a closed
+    // panel) reads as a bug the next time it's reopened — reset both forms
+    // whenever which story is open changes.
+    setEditingClaimId(null);
+    setEditStatus(null);
+    setNewClaimText("");
+    setNewClaimTag("");
+    setAddStatus(null);
+  }
+
+  function startEdit(claim: JournalistClaim) {
+    setEditingClaimId(claim.id);
+    setEditText(claim.text);
+    setEditTag(claim.tag);
+    setEditStatus(null);
+  }
+
+  function cancelEdit() {
+    setEditingClaimId(null);
+    setEditStatus(null);
+  }
+
+  // Rewrites the claim's text/tag and marks it self-corrected in one action —
+  // the claim stays right where it was, just updated, rather than
+  // disappearing from the list.
+  async function submitEdit(e: React.FormEvent) {
     e.preventDefault();
-    setSelfCorrectStatus(null);
-    setSubmittingSelfCorrect(true);
+    if (!editingClaimId) return;
+    setEditBusy(true);
+    setEditStatus(null);
     try {
-      await selfCorrectClaim(claimId);
-      setSelfCorrectTone("ok");
-      setSelfCorrectStatus("Marked self-corrected — this counts toward your rank score.");
-      setClaimId("");
+      await selfCorrectClaim(editingClaimId, { text: editText, tag: editTag });
+      setEditTone("ok");
+      setEditStatus("Saved — marked self-corrected, which counts toward your rank score.");
+      setEditingClaimId(null);
+      loadClaims();
+      loadArticles();
     } catch {
-      setSelfCorrectTone("alert");
-      setSelfCorrectStatus("Couldn't self-correct that claim — it may not be yours, or already resolved.");
+      setEditTone("alert");
+      setEditStatus("Couldn't save that change — the claim may already be resolved.");
     } finally {
-      setSubmittingSelfCorrect(false);
+      setEditBusy(false);
+    }
+  }
+
+  async function submitNewClaim(e: React.FormEvent, articleId: string) {
+    e.preventDefault();
+    setAddBusy(true);
+    setAddStatus(null);
+    try {
+      await tagClaim(articleId, newClaimText, newClaimTag);
+      setNewClaimText("");
+      setNewClaimTag("");
+      loadClaims();
+    } catch {
+      setAddStatus("Couldn't tag that claim — check the fields and try again.");
+    } finally {
+      setAddBusy(false);
     }
   }
 
   return {
     articles,
+    claims,
+    claimsByArticle,
     error,
     notes: buildNotes(articles),
-    claimId,
-    setClaimId,
-    selfCorrectStatus,
-    selfCorrectTone,
-    submittingSelfCorrect,
-    handleSelfCorrect,
+    expandedArticleId,
+    toggleStory,
+    editingClaimId,
+    editText,
+    setEditText,
+    editTag,
+    setEditTag,
+    editBusy,
+    editStatus,
+    editTone,
+    startEdit,
+    cancelEdit,
+    submitEdit,
+    newClaimText,
+    setNewClaimText,
+    newClaimTag,
+    setNewClaimTag,
+    addBusy,
+    addStatus,
+    submitNewClaim,
   };
 }

@@ -7,7 +7,7 @@ import { MarginLog } from "@/components/MarginLog";
 import { useAuditorDashboard } from "@/hooks/useAuditorDashboard";
 
 export default function AuditorDashboardPage() {
-  const { claims, stats, error, notes } = useAuditorDashboard();
+  const { claims, stats, error, notes, page, setPage, totalPages } = useAuditorDashboard();
 
   return (
     <>
@@ -90,6 +90,27 @@ export default function AuditorDashboardPage() {
                   </Link>
                 </div>
               ))}
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "1rem", marginTop: "1rem" }}>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => setPage((p) => p - 1)}
+                  disabled={page <= 1}
+                >
+                  ← Previous
+                </button>
+                <span style={{ color: "var(--ink-soft)", fontSize: "0.85rem" }}>
+                  Page {page} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page >= totalPages}
+                >
+                  Next →
+                </button>
+              </div>
             </div>
           )}
         </div>

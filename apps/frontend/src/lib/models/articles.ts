@@ -1,12 +1,25 @@
 import { apiGet, apiPost, apiPostVoid } from "@/lib/api";
-import type { Article, ArticleDetail } from "@/types/domain";
+import type { Article, ArticleDetail, PaginatedArticles } from "@/types/domain";
 
 export function getMyArticles(): Promise<Article[]> {
   return apiGet<Article[]>("/articles/mine");
 }
 
-export function getAllArticles(): Promise<Article[]> {
-  return apiGet<Article[]>("/articles");
+export interface GetAllArticlesParams {
+  page?: number;
+  pageSize?: number;
+}
+
+// Paginated, newest-first (F-list pagination on /read: 20 at a time). Omit
+// pageSize to get the backend's "everything in one page" default (100) — the
+// admin compliance ledger uses that, since it wants the whole ledger visible
+// at once rather than paged.
+export function getAllArticles(params: GetAllArticlesParams = {}): Promise<PaginatedArticles> {
+  const query = new URLSearchParams();
+  if (params.page) query.set("page", String(params.page));
+  if (params.pageSize) query.set("pageSize", String(params.pageSize));
+  const qs = query.toString();
+  return apiGet<PaginatedArticles>(`/articles${qs ? `?${qs}` : ""}`);
 }
 
 export interface CreateArticleInput {

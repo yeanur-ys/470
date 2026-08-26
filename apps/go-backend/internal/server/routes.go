@@ -49,6 +49,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("POST /articles", RequireRole("journalist")(http.HandlerFunc(articlesController.Create)))
 	mux.Handle("GET /articles/mine", RequireRole("journalist")(http.HandlerFunc(articlesController.Mine)))
 	mux.Handle("POST /articles/{articleId}/claims", RequireRole("journalist")(http.HandlerFunc(claimsController.Create)))
+	mux.Handle("GET /claims/mine", RequireRole("journalist")(http.HandlerFunc(claimsController.Mine)))
 	mux.Handle("POST /claims/{claimId}/self-correct", RequireRole("journalist")(http.HandlerFunc(claimsController.SelfCorrect)))
 	mux.Handle("POST /appeals", RequireRole("journalist")(http.HandlerFunc(articlesController.CreateAppeal)))
 

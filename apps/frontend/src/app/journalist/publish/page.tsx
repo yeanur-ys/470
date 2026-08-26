@@ -54,25 +54,21 @@ export default function PublishPage() {
                 <thead>
                   <tr>
                     <th>Claim</th>
-                    <th>ID (for self-correction later)</th>
+                    <th>Tag</th>
                   </tr>
                 </thead>
                 <tbody>
                   {claimsAdded.map((c) => (
                     <tr key={c.id}>
-                      <td>
-                        {c.text} <span style={{ color: "var(--ink-soft)" }}>({c.tag})</span>
-                      </td>
-                      <td className="mono" style={{ fontSize: "0.78rem" }}>
-                        {c.id}
-                      </td>
+                      <td>{c.text}</td>
+                      <td style={{ color: "var(--ink-soft)" }}>{c.tag}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
             <p style={{ marginTop: "1.5rem" }}>
-              <Link href="/journalist/dashboard">← Back to your byline</Link>
+              <Link href="/journalist/dashboard">← Back to your byline — self-correct any of these claims from there</Link>
             </p>
           </div>
           <MarginLog heading="Tagged so far" notes={claimNotes} />

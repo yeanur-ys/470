@@ -8,7 +8,7 @@ import { Stamp } from "@/components/Stamp";
 import { useReadList } from "@/hooks/useReadList";
 
 export default function ReadPage() {
-  const { articles, error } = useReadList();
+  const { articles, error, page, setPage, totalPages } = useReadList();
 
   return (
     <>
@@ -45,6 +45,37 @@ export default function ReadPage() {
             </div>
           </Link>
         ))}
+        {articles && articles.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "1rem",
+              marginTop: "1.5rem",
+            }}
+          >
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setPage((p) => p - 1)}
+              disabled={page <= 1}
+            >
+              ← Previous
+            </button>
+            <span style={{ color: "var(--ink-soft)", fontSize: "0.85rem" }}>
+              Page {page} of {totalPages}
+            </span>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page >= totalPages}
+            >
+              Next →
+            </button>
+          </div>
+        )}
       </main>
     </>
   );

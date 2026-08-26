@@ -10,8 +10,10 @@ export function useAdminDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getAllArticles()
-      .then(setArticles)
+    // pageSize: 100 keeps the ledger's old "everything on one screen"
+    // behaviour from before /articles was paginated for the reader list.
+    getAllArticles({ pageSize: 100 })
+      .then((res) => setArticles(res.articles))
       .catch(() => setError("Could not load articles."));
   }, []);
 

@@ -7,8 +7,21 @@ import { MarginLog } from "@/components/MarginLog";
 import { useAppeals } from "@/hooks/useAppeals";
 
 export default function AppealsPage() {
-  const { articles, articleId, setArticleId, stakedPercent, setStakedPercent, status, submitting, handleSubmit, notes } =
-    useAppeals();
+  const {
+    disputable,
+    articleId,
+    setArticleId,
+    stakedPercent,
+    setStakedPercent,
+    evidenceText,
+    setEvidenceText,
+    evidenceUrl,
+    setEvidenceUrl,
+    status,
+    submitting,
+    handleSubmit,
+    notes,
+  } = useAppeals();
 
   return (
     <>
@@ -25,9 +38,14 @@ export default function AppealsPage() {
               <option value="" disabled>
                 Select a story…
               </option>
-              {articles.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.title} {a.isRetracted ? "(retracted)" : ""}
+              {disputable.length === 0 && (
+                <option value="" disabled>
+                  No stories with a false-claim verdict yet
+                </option>
+              )}
+              {disputable.map((a) => (
+                <option key={a.id} value={a.id} disabled={a.hasActiveAppeal}>
+                  {a.title} {a.hasActiveAppeal ? "(appeal already active — awaiting review)" : ""}
                 </option>
               ))}
             </select>
@@ -41,6 +59,24 @@ export default function AppealsPage() {
               value={stakedPercent}
               onChange={(e) => setStakedPercent(e.target.value)}
               required
+            />
+          </label>
+          <label className="field">
+            New evidence (what changed, or what the ruling missed)
+            <textarea
+              className="field-input"
+              value={evidenceText}
+              onChange={(e) => setEvidenceText(e.target.value)}
+              rows={4}
+            />
+          </label>
+          <label className="field">
+            Or a link to the evidence
+            <Input
+              type="url"
+              placeholder="https://…"
+              value={evidenceUrl}
+              onChange={(e) => setEvidenceUrl(e.target.value)}
             />
           </label>
           <Button type="submit" disabled={submitting || !articleId}>

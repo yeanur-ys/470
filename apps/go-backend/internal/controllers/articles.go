@@ -21,9 +21,15 @@ func NewArticlesController(db *pgxpool.Pool, rdb *redis.Client) *ArticlesControl
 	return &ArticlesController{DB: db, Redis: rdb}
 }
 
-// List is the public reader listing: latest 100 stories.
+// List is the public reader listing, paginated newest-first via ?page= and
+// ?pageSize= (defaults: page 1, pageSize 100 — pageSize 100 keeps the
+// endpoint's old "everything in one page" behaviour for callers, like the
+// admin compliance ledger, that don't ask for a specific page size).
 func (c *ArticlesController) List(w http.ResponseWriter, r *http.Request) {
-	result, err := models.ListArticles(r.Context(), c.DB)
+	page := models.ClampArticlesPage(r.URL.Query().Get("page"))
+	pageSize := models.ClampArticlesPageSize(r.URL.Query().Get("pageSize"))
+
+	result, err := models.ListArticles(r.Context(), c.DB, page, pageSize)
 	if err != nil {
 		http.Error(w, "failed to load articles", http.StatusInternalServerError)
 		return

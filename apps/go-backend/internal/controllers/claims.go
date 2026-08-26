@@ -63,9 +63,14 @@ func (c *ClaimsController) Create(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
 }
 
-// Pending lists claims awaiting cross-tag consensus (FR-7).
+// Pending lists claims awaiting cross-tag consensus (FR-7), paginated via
+// ?page= and ?pageSize= (default 20) so a large backlog doesn't hide newer
+// claims outside the old hardcoded top-100.
 func (c *ClaimsController) Pending(w http.ResponseWriter, r *http.Request) {
-	result, err := models.PendingClaims(r.Context(), c.DB)
+	page := models.ClampPendingClaimsPage(r.URL.Query().Get("page"))
+	pageSize := models.ClampPendingClaimsPageSize(r.URL.Query().Get("pageSize"))
+
+	result, err := models.PendingClaims(r.Context(), c.DB, page, pageSize)
 	if err != nil {
 		http.Error(w, "failed to load claims", http.StatusInternalServerError)
 		return
@@ -75,12 +80,40 @@ func (c *ClaimsController) Pending(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(result)
 }
 
-// SelfCorrect lets a journalist mark their own claim self-corrected.
+// Mine lists every claim tagged across the requesting journalist's own
+// articles, so their dashboard can offer a self-correct action on any of them
+// — not just a claim tagged earlier in the same publish session.
+func (c *ClaimsController) Mine(w http.ResponseWriter, r *http.Request) {
+	requester, _ := auth.FromContext(r.Context())
+
+	result, err := models.ClaimsByJournalist(r.Context(), c.DB, requester.UserID)
+	if err != nil {
+		http.Error(w, "failed to load your claims", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+type selfCorrectRequest struct {
+	Text string `json:"text"`
+	Tag  string `json:"tag"`
+}
+
+// SelfCorrect lets a journalist mark their own claim self-corrected,
+// optionally rewriting its text/tag in the same request -- a "correction" is
+// fixing what the claim says, not just relabelling it. Both fields are
+// optional: an empty body just flips the status, same as before.
 func (c *ClaimsController) SelfCorrect(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
 	requester, _ := auth.FromContext(r.Context())
 	claimID := r.PathValue("claimId")
 
-	err := models.SelfCorrectClaim(r.Context(), c.DB, c.Redis, requester.UserID, claimID)
+	var req selfCorrectRequest
+	_ = json.NewDecoder(r.Body).Decode(&req) // body is optional; a decode failure just means no edits
+
+	err := models.SelfCorrectClaim(r.Context(), c.DB, c.Redis, requester.UserID, claimID, req.Text, req.Tag)
 	if err != nil {
 		switch {
 		case errors.Is(err, models.ErrClaimNotFound):

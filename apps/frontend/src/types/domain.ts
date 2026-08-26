@@ -26,6 +26,10 @@ export interface Article {
   selfCorrectedClaims: number;
   falseClaims: number;
   isRetracted: boolean;
+  // Only populated on /articles/mine — an article can carry at most one
+  // active appeal at a time (see hooks/useAppeals.ts), so this is what lets
+  // the appeals form warn before a doomed second attempt on the same story.
+  hasActiveAppeal?: boolean;
   createdAt: string;
 }
 
@@ -42,12 +46,38 @@ export interface ArticleDetail extends Article {
   claims: ArticleClaim[];
 }
 
+export interface PaginatedArticles {
+  articles: Article[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface PendingClaim {
   id: string;
   articleId: string;
   articleTitle: string;
   text: string;
   tag: string;
+}
+
+export interface PaginatedPendingClaims {
+  claims: PendingClaim[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// Every claim tagged across a journalist's own articles — the dashboard's
+// source for self-correcting a claim on any article, not just the one most
+// recently published (see hooks/useJournalistDashboard.ts).
+export interface JournalistClaim {
+  id: string;
+  articleId: string;
+  articleTitle: string;
+  text: string;
+  tag: string;
+  status: ClaimStatus;
 }
 
 export interface VoteResult {
